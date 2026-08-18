@@ -1,0 +1,6 @@
+{
+  "investigationId": "inv-002-001",
+  "question": "Checkout API returns HTTP 500 since deployment 1.8.4. What happened?",
+  "service": "checkout-api",
+  "deployment": "1.8.4"
+}
