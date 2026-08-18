@@ -80,6 +80,35 @@ knowledge/             Small curated operational knowledge base
 
 The repository is currently in the architecture and bootstrap phase. Product implementation starts with the small slices documented under `docs/issues/`.
 
+## Local development
+
+Start both runtime services with Docker Compose:
+
+```bash
+docker compose up --build
+```
+
+The control plane health endpoint is available at `http://localhost:8080/health`, and the AI runtime health endpoint is available at `http://localhost:8000/health`.
+
+Run the .NET build and tests from the repository root:
+
+```bash
+dotnet build
+dotnet test
+```
+
+Run the Python tests from the repository root:
+
+```bash
+python -m pytest
+```
+
+Validate the Compose configuration without starting services:
+
+```bash
+docker compose config
+```
+
 ## License
 
 MIT

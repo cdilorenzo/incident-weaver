@@ -1,0 +1,19 @@
+services:
+  control-plane:
+    build:
+      context: .
+      dockerfile: src/control-plane/Dockerfile
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  ai-runtime:
+    build:
+      context: .
+      dockerfile: src/ai-runtime/Dockerfile
+    ports:
+      - "8000:8000"
