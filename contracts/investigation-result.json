@@ -1,0 +1,18 @@
+{
+  "investigationId": "inv-002-001",
+  "summary": "Deterministic investigation stub for checkout-api.",
+  "evidence": [
+    {
+      "evidenceId": "evidence-stub-001",
+      "source": "deterministic-stub",
+      "summary": "No AI provider or operational tools are used in this slice.",
+      "citations": [
+        {
+          "citationId": "citation-stub-001",
+          "reference": "slice-002"
+        }
+      ]
+    }
+  ],
+  "actionProposal": null
+}
