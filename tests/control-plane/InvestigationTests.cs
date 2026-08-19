@@ -71,6 +71,56 @@ public sealed class InvestigationTests : IClassFixture<WebApplicationFactory<Pro
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
+    [Fact]
+    public async Task Investigation_returns_bad_gateway_when_runtime_rejects_request()
+    {
+        using var client = CreateClient(new AiRuntimeHttpException(HttpStatusCode.UnprocessableEntity));
+
+        using var response = await client.PostAsJsonAsync(
+            "/investigations",
+            new InvestigationRequest("inv-002-001", "What happened?", "checkout-api", null));
+
+        Assert.Equal(HttpStatusCode.BadGateway, response.StatusCode);
+        Assert.Contains("rejected", await response.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task Investigation_returns_bad_gateway_when_runtime_result_is_invalid()
+    {
+        using var client = CreateClient(new AiRuntimeContractException("invalid result"));
+
+        using var response = await client.PostAsJsonAsync(
+            "/investigations",
+            new InvestigationRequest("inv-002-001", "What happened?", "checkout-api", null));
+
+        Assert.Equal(HttpStatusCode.BadGateway, response.StatusCode);
+        Assert.Contains("invalid investigation result", await response.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task Investigation_returns_bad_gateway_when_runtime_is_unreachable()
+    {
+        using var client = CreateClient(new HttpRequestException("connection failed"));
+
+        using var response = await client.PostAsJsonAsync(
+            "/investigations",
+            new InvestigationRequest("inv-002-001", "What happened?", "checkout-api", null));
+
+        Assert.Equal(HttpStatusCode.BadGateway, response.StatusCode);
+        Assert.Contains("could not be reached", await response.Content.ReadAsStringAsync());
+    }
+
+    private HttpClient CreateClient(Exception exception)
+    {
+        return factory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureServices(services =>
+            {
+                services.AddSingleton<IAiRuntimeClient>(new ThrowingAiRuntimeClient(exception));
+            });
+        }).CreateClient();
+    }
+
     private HttpClient CreateClient(InvestigationResult result)
     {
         return factory.WithWebHostBuilder(builder =>
@@ -87,5 +137,12 @@ public sealed class InvestigationTests : IClassFixture<WebApplicationFactory<Pro
         public Task<InvestigationResult> InvestigateAsync(
             InvestigationRequest request,
             CancellationToken cancellationToken) => Task.FromResult(result);
+    }
+
+    private sealed class ThrowingAiRuntimeClient(Exception exception) : IAiRuntimeClient
+    {
+        public Task<InvestigationResult> InvestigateAsync(
+            InvestigationRequest request,
+            CancellationToken cancellationToken) => Task.FromException<InvestigationResult>(exception);
     }
 }
