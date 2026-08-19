@@ -1,0 +1,26 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "incidentweaver-ops-mcp"
+version = "0.1.0"
+description = "IncidentWeaver read-only operations MCP service"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.115,<1.0",
+    "mcp>=1.0,<2.0",
+    "uvicorn[standard]>=0.34,<1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0,<10.0",
+]
+
+[tool.hatch.build.targets.wheel]
+only-include = ["server.py"]
+
+[tool.pytest.ini_options]
+pythonpath = [".", "../../tests/ops-mcp"]
+testpaths = ["../../tests/ops-mcp"]

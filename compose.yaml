@@ -17,3 +17,13 @@ services:
     build:
       context: .
       dockerfile: src/ai-runtime/Dockerfile
+
+  ops-mcp:
+    build:
+      context: .
+      dockerfile: src/ops-mcp/Dockerfile
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
