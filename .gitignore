@@ -12,6 +12,11 @@ __pycache__/
 .ruff_cache/
 .mypy_cache/
 
+# Python build artifacts
+dist/
+build/
+*.egg-info/
+
 # Environment and secrets
 .env
 .env.*
