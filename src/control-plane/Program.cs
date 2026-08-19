@@ -31,6 +31,14 @@ app.MapPost("/investigations", async (
     {
         return Results.Problem("The AI runtime could not be reached.", statusCode: StatusCodes.Status502BadGateway);
     }
+    catch (AiRuntimeHttpException)
+    {
+        return Results.Problem("The AI runtime rejected the investigation request.", statusCode: StatusCodes.Status502BadGateway);
+    }
+    catch (AiRuntimeContractException)
+    {
+        return Results.Problem("The AI runtime returned an invalid investigation result.", statusCode: StatusCodes.Status502BadGateway);
+    }
     catch (System.Text.Json.JsonException)
     {
         return Results.Problem("The AI runtime returned an invalid investigation result.", statusCode: StatusCodes.Status502BadGateway);

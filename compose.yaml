@@ -17,5 +17,3 @@ services:
     build:
       context: .
       dockerfile: src/ai-runtime/Dockerfile
-    ports:
-      - "8000:8000"
