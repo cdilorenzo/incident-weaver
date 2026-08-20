@@ -1,5 +1,7 @@
 from pathlib import Path
 import asyncio
+import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -9,7 +11,9 @@ from retrieval import (
     DEFAULT_TOP_K,
     CURATED_KNOWLEDGE_DIRECTORIES,
     InMemoryKnowledgeStore,
+    KnowledgeChunk,
     KnowledgeRetriever,
+    PostgresKnowledgeStore,
     chunk_markdown,
     discover_knowledge,
     index_knowledge,
@@ -93,6 +97,126 @@ def test_deterministic_embeddings_index_and_rank_with_bounded_top_k(tmp_path: Pa
         assert store.requested_top_k == [DEFAULT_TOP_K]
         assert results[0].chunk.reference == "knowledge/runbooks/one.md#chunk-001"
     asyncio.run(scenario())
+
+
+def test_indexing_replaces_stale_rows_and_is_idempotent(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        root = tmp_path / "knowledge"
+        document = root / "runbooks" / "current.md"
+        document.parent.mkdir(parents=True)
+        document.write_text("# Current\n\nCurrent content", encoding="utf-8")
+        provider = DeterministicEmbeddingProvider()
+        store = InMemoryKnowledgeStore()
+        stale = KnowledgeChunk(
+            "knowledge/README.md#chunk-001",
+            "knowledge/README.md#chunk-001",
+            "README",
+            1,
+            "stale documentation",
+            "stale-hash",
+        )
+        await store.replace_all([(stale, [1.0] * provider.dimensions)])
+
+        assert await index_knowledge(root, provider, store) == 1
+        first_rows = store.rows.copy()
+        assert set(first_rows) == {"knowledge/runbooks/current.md#chunk-001"}
+
+        assert await index_knowledge(root, provider, store) == 1
+        assert store.rows == first_rows
+    asyncio.run(scenario())
+
+
+def test_indexing_removes_deleted_documents_and_empty_corpus(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        root = tmp_path / "knowledge"
+        runbooks = root / "runbooks"
+        runbooks.mkdir(parents=True)
+        first = runbooks / "first.md"
+        second = runbooks / "second.md"
+        first.write_text("# First\n\nFirst content", encoding="utf-8")
+        second.write_text("# Second\n\nSecond content", encoding="utf-8")
+        provider = DeterministicEmbeddingProvider()
+        store = InMemoryKnowledgeStore()
+
+        assert await index_knowledge(root, provider, store) == 2
+        second.unlink()
+        assert await index_knowledge(root, provider, store) == 1
+        assert set(store.rows) == {"knowledge/runbooks/first.md#chunk-001"}
+
+        first.unlink()
+        assert await index_knowledge(root, provider, store) == 0
+        assert store.rows == {}
+    asyncio.run(scenario())
+
+
+def test_postgres_replacement_deletes_and_inserts_in_one_transaction(monkeypatch: pytest.MonkeyPatch) -> None:
+    class RecordingConnection:
+        def __init__(self) -> None:
+            self.statements: list[tuple[str, tuple[object, ...] | None]] = []
+            self.commits = 0
+            self.rollback_observed = False
+
+        def __enter__(self) -> "RecordingConnection":
+            return self
+
+        def __exit__(self, exception_type: object, *_: object) -> None:
+            self.rollback_observed = exception_type is not None
+
+        def execute(self, statement: str, parameters: tuple[object, ...] | None = None) -> None:
+            self.statements.append((statement, parameters))
+
+        def commit(self) -> None:
+            self.commits += 1
+
+    connection = RecordingConnection()
+    monkeypatch.setitem(sys.modules, "psycopg", SimpleNamespace(connect=lambda _: connection))
+    chunk = KnowledgeChunk("id", "reference", "title", 1, "content", "hash")
+
+    asyncio.run(PostgresKnowledgeStore("dsn").replace_all([(chunk, [1.0, 2.0])]))
+
+    assert connection.statements[0] == ("DELETE FROM knowledge_chunks", None)
+    assert connection.statements[1][0].startswith("INSERT INTO knowledge_chunks")
+    assert connection.commits == 1
+    assert not connection.rollback_observed
+
+
+def test_postgres_replacement_rolls_back_when_insertion_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FailingConnection:
+        def __init__(self) -> None:
+            self.committed_rows = ["old-index"]
+            self.working_rows = list(self.committed_rows)
+            self.commits = 0
+            self.rollbacks = 0
+
+        def __enter__(self) -> "FailingConnection":
+            return self
+
+        def __exit__(self, exception_type: object, *_: object) -> None:
+            if exception_type is not None:
+                self.working_rows = list(self.committed_rows)
+                self.rollbacks += 1
+
+        def execute(self, statement: str, parameters: tuple[object, ...] | None = None) -> None:
+            if statement == "DELETE FROM knowledge_chunks":
+                self.working_rows.clear()
+            else:
+                raise RuntimeError("insert failed")
+
+        def commit(self) -> None:
+            self.committed_rows = list(self.working_rows)
+            self.commits += 1
+
+    connection = FailingConnection()
+    monkeypatch.setitem(sys.modules, "psycopg", SimpleNamespace(connect=lambda _: connection))
+    chunk = KnowledgeChunk("id", "reference", "title", 1, "content", "hash")
+
+    with pytest.raises(RuntimeError, match="insert failed"):
+        asyncio.run(PostgresKnowledgeStore("dsn").replace_all([(chunk, [1.0, 2.0])]))
+
+    assert connection.committed_rows == ["old-index"]
+    assert connection.working_rows == ["old-index"]
+    assert connection.commits == 0
+    assert connection.rollbacks == 1
 
 
 def test_repository_corpus_contains_checkout_http500_knowledge() -> None:

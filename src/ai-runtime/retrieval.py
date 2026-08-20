@@ -33,7 +33,7 @@ class RetrievedChunk:
 
 
 class KnowledgeStore(Protocol):
-    async def upsert(self, chunks: Sequence[tuple[KnowledgeChunk, list[float]]]) -> None: ...
+    async def replace_all(self, chunks: Sequence[tuple[KnowledgeChunk, list[float]]]) -> None: ...
 
     async def search(self, embedding: list[float], top_k: int) -> list[RetrievedChunk]: ...
 
@@ -106,8 +106,8 @@ class InMemoryKnowledgeStore:
         self.rows: dict[str, tuple[KnowledgeChunk, list[float]]] = {}
         self.requested_top_k: list[int] = []
 
-    async def upsert(self, chunks: Sequence[tuple[KnowledgeChunk, list[float]]]) -> None:
-        self.rows.update({chunk.chunk_id: (chunk, vector) for chunk, vector in chunks})
+    async def replace_all(self, chunks: Sequence[tuple[KnowledgeChunk, list[float]]]) -> None:
+        self.rows = {chunk.chunk_id: (chunk, vector) for chunk, vector in chunks}
 
     async def search(self, embedding: list[float], top_k: int) -> list[RetrievedChunk]:
         self.requested_top_k.append(top_k)
@@ -134,9 +134,10 @@ class PostgresKnowledgeStore:
                 embedding vector({self.dimensions}) NOT NULL)""")
             connection.commit()
 
-    async def upsert(self, chunks: Sequence[tuple[KnowledgeChunk, list[float]]]) -> None:
+    async def replace_all(self, chunks: Sequence[tuple[KnowledgeChunk, list[float]]]) -> None:
         import psycopg
         with psycopg.connect(self.dsn) as connection:
+            connection.execute("DELETE FROM knowledge_chunks")
             for chunk, vector in chunks:
                 connection.execute("""INSERT INTO knowledge_chunks
                     (chunk_id, reference, title, chunk_index, content, content_hash, embedding)
@@ -172,7 +173,7 @@ class KnowledgeRetriever:
 
 async def index_knowledge(root: Path, provider: EmbeddingProvider, store: KnowledgeStore) -> int:
     chunks = discover_knowledge(root)
-    await store.upsert([(chunk, await provider.embed(chunk.content)) for chunk in chunks])
+    await store.replace_all([(chunk, await provider.embed(chunk.content)) for chunk in chunks])
     return len(chunks)
 
 
