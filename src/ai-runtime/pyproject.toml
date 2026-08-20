@@ -11,6 +11,7 @@ dependencies = [
     "fastapi>=0.115,<1.0",
     "pydantic>=2.10,<3.0",
     "pydantic-ai-slim[openai,mcp]>=0.0.46,<1.0",
+    "psycopg[binary]>=3.2,<4.0",
     "uvicorn[standard]>=0.34,<1.0",
 ]
 
@@ -21,7 +22,7 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-only-include = ["app.py", "agent.py", "model_provider.py", "text_safety.py"]
+only-include = ["app.py", "agent.py", "model_provider.py", "text_safety.py", "embedding.py", "retrieval.py", "index_knowledge.py"]
 
 [tool.pytest.ini_options]
 pythonpath = [".", "../../tests/ai-runtime"]

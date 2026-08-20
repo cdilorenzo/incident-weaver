@@ -85,8 +85,10 @@ class GroundingToolset(AbstractToolset[None]):
 class GroundedInvestigation:
     """Owns one agent and one isolated trace for one investigation run."""
 
-    def __init__(self, model: object, read_mcp: AbstractToolset[None]) -> None:
+    def __init__(self, model: object, read_mcp: AbstractToolset[None], retriever: object | None = None) -> None:
         self.trace = InvestigationTrace()
+        self.retriever = retriever
+        self.last_prompt = ""
         self.toolset = GroundingToolset(read_mcp, self.trace)
         self.agent = Agent(
             model=model,
@@ -105,7 +107,10 @@ class GroundedInvestigation:
     async def __aexit__(self, *args: Any) -> bool | None:
         return await self.agent.__aexit__(*args)
 
-    async def run(self, prompt: str) -> Any:
+    async def run(self, prompt: str, knowledge_context: str = "") -> Any:
+        if knowledge_context:
+            prompt = f"{prompt}\n\n{knowledge_context}"
+        self.last_prompt = prompt
         result = await self.agent.run(prompt)
         missing = set(REQUIRED_READ_TOOLS) - self.trace.successful_tool_names
         if missing:
@@ -192,7 +197,9 @@ Use all four available read-only tools before returning a successful investigati
 """.strip()
 
 
-def create_investigation_agent(model: object, read_mcp: AbstractToolset[None]) -> GroundedInvestigation:
+def create_investigation_agent(
+    model: object, read_mcp: AbstractToolset[None], retriever: object | None = None
+) -> GroundedInvestigation:
     """Construct the single project investigation agent with the read MCP surface."""
 
-    return GroundedInvestigation(model, read_mcp)
+    return GroundedInvestigation(model, read_mcp, retriever)

@@ -19,6 +19,10 @@ services:
       dockerfile: src/ai-runtime/Dockerfile
     environment:
       INCIDENTWEAVER_OPS_MCP_URL: http://ops-mcp:8001/mcp
+      INCIDENTWEAVER_KNOWLEDGE_DSN: postgresql://incidentweaver_ai:${INCIDENTWEAVER_KNOWLEDGE_DB_PASSWORD:?Set%20INCIDENTWEAVER_KNOWLEDGE_DB_PASSWORD}@knowledge-db:5432/incidentweaver_ai
+    depends_on:
+      knowledge-db:
+        condition: service_healthy
 
   ops-mcp:
     build:
@@ -29,3 +33,15 @@ services:
       interval: 10s
       timeout: 3s
       retries: 3
+
+  knowledge-db:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_DB: incidentweaver_ai
+      POSTGRES_USER: incidentweaver_ai
+      POSTGRES_PASSWORD: ${INCIDENTWEAVER_KNOWLEDGE_DB_PASSWORD:?Set%20INCIDENTWEAVER_KNOWLEDGE_DB_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U incidentweaver_ai -d incidentweaver_ai"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
