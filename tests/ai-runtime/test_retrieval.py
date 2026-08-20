@@ -7,6 +7,7 @@ from app import knowledge_context, knowledge_evidence
 from embedding import DeterministicEmbeddingProvider
 from retrieval import (
     DEFAULT_TOP_K,
+    CURATED_KNOWLEDGE_DIRECTORIES,
     InMemoryKnowledgeStore,
     KnowledgeRetriever,
     chunk_markdown,
@@ -31,28 +32,56 @@ def test_markdown_chunking_and_ids_are_deterministic(tmp_path: Path) -> None:
     ]
 
 
-def test_discovery_indexes_only_markdown_inside_knowledge_root(tmp_path: Path) -> None:
+def test_discovery_indexes_only_markdown_in_curated_directories(tmp_path: Path) -> None:
     root = tmp_path / "knowledge"
     root.mkdir()
-    (root / "valid.md").write_text("# Valid\n\nContent", encoding="utf-8")
-    (root / "ignored.txt").write_text("not indexed", encoding="utf-8")
+    (root / "root.md").write_text("# Root\n\nNot indexed", encoding="utf-8")
+    (root / "runbooks" / "valid.md").parent.mkdir()
+    (root / "runbooks" / "valid.md").write_text("# Valid\n\nContent", encoding="utf-8")
+    (root / "history" / "incident.md").parent.mkdir()
+    (root / "history" / "incident.md").write_text("# Incident\n\nHistory", encoding="utf-8")
+    (root / "runbooks" / "ignored.txt").write_text("not indexed", encoding="utf-8")
     outside = tmp_path / "outside.md"
     outside.write_text("# Outside\n\nNot indexed", encoding="utf-8")
 
     chunks = discover_knowledge(root)
 
-    assert len(chunks) == 1
-    assert chunks[0].reference == "knowledge/valid.md#chunk-001"
+    assert {chunk.reference for chunk in chunks} == {
+        "knowledge/history/incident.md#chunk-001",
+        "knowledge/runbooks/valid.md#chunk-001",
+    }
+    assert all(
+        chunk.reference.removeprefix("knowledge/").split("/", 1)[0]
+        in CURATED_KNOWLEDGE_DIRECTORIES
+        for chunk in chunks
+    )
+    assert all("knowledge/root.md" not in chunk.reference for chunk in chunks)
     with pytest.raises(ValueError):
         chunk_markdown(outside, root)
+
+
+def test_repository_discovery_contains_exactly_eight_curated_documents() -> None:
+    root = Path(__file__).parents[2] / "knowledge"
+
+    chunks = discover_knowledge(root)
+    references = {chunk.reference.split("#", 1)[0] for chunk in chunks}
+
+    assert len(references) == 8
+    assert "knowledge/README.md" not in references
+    assert all(
+        reference.removeprefix("knowledge/").split("/", 1)[0]
+        in CURATED_KNOWLEDGE_DIRECTORIES
+        for reference in references
+    )
 
 
 def test_deterministic_embeddings_index_and_rank_with_bounded_top_k(tmp_path: Path) -> None:
     async def scenario() -> None:
         root = tmp_path / "knowledge"
-        root.mkdir()
-        (root / "one.md").write_text("# One\n\nalpha", encoding="utf-8")
-        (root / "two.md").write_text("# Two\n\nbeta", encoding="utf-8")
+        (root / "runbooks").mkdir(parents=True)
+        (root / "runbooks" / "one.md").write_text("# One\n\nalpha", encoding="utf-8")
+        (root / "history").mkdir()
+        (root / "history" / "two.md").write_text("# Two\n\nbeta", encoding="utf-8")
         provider = DeterministicEmbeddingProvider()
         store = InMemoryKnowledgeStore()
 
@@ -62,7 +91,7 @@ def test_deterministic_embeddings_index_and_rank_with_bounded_top_k(tmp_path: Pa
 
         assert len(results) == 2
         assert store.requested_top_k == [DEFAULT_TOP_K]
-        assert results[0].chunk.reference == "knowledge/one.md#chunk-001"
+        assert results[0].chunk.reference == "knowledge/runbooks/one.md#chunk-001"
     asyncio.run(scenario())
 
 

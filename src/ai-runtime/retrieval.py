@@ -13,6 +13,7 @@ from text_safety import sanitize_untrusted_text
 
 MAX_CHUNK_LENGTH = 700
 DEFAULT_TOP_K = 4
+CURATED_KNOWLEDGE_DIRECTORIES = ("runbooks", "history")
 
 
 @dataclass(frozen=True)
@@ -92,7 +93,12 @@ def chunk_markdown(path: Path, knowledge_root: Path) -> list[KnowledgeChunk]:
 
 
 def discover_knowledge(root: Path) -> list[KnowledgeChunk]:
-    return [chunk for path in sorted(root.rglob("*.md")) for chunk in chunk_markdown(path, root)]
+    paths = [
+        path
+        for directory in CURATED_KNOWLEDGE_DIRECTORIES
+        for path in (root / directory).rglob("*.md")
+    ]
+    return [chunk for path in sorted(paths) for chunk in chunk_markdown(path, root)]
 
 
 class InMemoryKnowledgeStore:
