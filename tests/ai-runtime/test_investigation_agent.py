@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from fastapi.testclient import TestClient
@@ -9,20 +10,14 @@ from pydantic_ai.toolsets import AbstractToolset, ToolsetTool
 from pydantic_ai.tools import ToolDefinition
 
 import app as app_module
-from agent import create_investigation_agent
-
-
-READ_TOOLS = {
-    "get_service_health",
-    "get_deployment",
-    "get_logs",
-    "get_known_incidents",
-}
+from agent import REQUIRED_READ_TOOLS, create_investigation_agent
 
 
 class RecordingReadToolset(AbstractToolset[None]):
-    def __init__(self) -> None:
+    def __init__(self, enabled_tools: set[str] | None = None, result_overrides: dict[str, Any] | None = None) -> None:
         self.calls: list[str] = []
+        self.enabled_tools = enabled_tools or set(REQUIRED_READ_TOOLS)
+        self.result_overrides = result_overrides or {}
 
     @property
     def id(self) -> str:
@@ -52,38 +47,56 @@ class RecordingReadToolset(AbstractToolset[None]):
                 args_validator=TypeAdapter(dict[str, Any]).validator,
             )
             for name, schema in schemas.items()
+            if name in self.enabled_tools
         }
 
     async def call_tool(
         self, name: str, tool_args: dict[str, Any], ctx: Any, tool: ToolsetTool[None]
     ) -> dict[str, Any]:
         self.calls.append(name)
-        return {
-            "source": name,
-            "service": "checkout-api",
-            "observed": f"Evidence returned by {name}.",
+        canonical_results = {
+            "get_service_health": {
+                "service": "checkout-api",
+                "instances": [
+                    {"instance": "instance-1", "status": "healthy", "healthy": True},
+                    {"instance": "instance-2", "status": "healthy", "healthy": True},
+                    {"instance": "instance-3", "status": "unhealthy", "healthy": False},
+                ],
+            },
+            "get_deployment": {
+                "service": "checkout-api",
+                "version": "1.8.4",
+                "deployed_at": "2026-08-18T10:03:00Z",
+            },
+            "get_logs": {
+                "service": "checkout-api",
+                "entries": [
+                    {"instance": "instance-3", "message": "PaymentGatewayClient initialization failed."},
+                    {"instance": "instance-3", "message": "Server startup failed."},
+                    {"instance": "instance-3", "message": "HTTP 500 error observed after deployment 1.8.4."},
+                ],
+            },
+            "get_known_incidents": {
+                "service": "checkout-api",
+                "incidents": [{"incident_id": "INC-142", "summary": "PaymentGatewayClient initialization issue."}],
+            },
         }
+        return self.result_overrides.get(name, canonical_results[name])
 
 
 def test_single_investigation_agent_is_constructed_with_only_read_tools() -> None:
     toolset = RecordingReadToolset()
     agent = create_investigation_agent(TestModel(), toolset)
 
-    assert agent.name == "investigation-agent"
-    assert toolset in agent.toolsets
+    assert agent.agent.name == "investigation-agent"
+    assert agent.toolset.read_mcp is toolset
 
 
 def test_canonical_investigation_uses_all_four_tools_and_maps_request_identity(monkeypatch: Any) -> None:
     toolset = RecordingReadToolset()
     agent = create_investigation_agent(
         TestModel(
-            custom_output_args={
-                "summary": "The deployment caused a dependency startup failure.",
-                "evidence": [
-                    {"source": "get_logs", "summary": "PaymentGatewayClient failed on instance-3."},
-                    {"source": "get_service_health", "summary": "instance-3 is unhealthy."},
-                ],
-            }
+            custom_output_args={"summary": "The deployment caused a dependency startup failure."}
         ),
         toolset,
     )
@@ -104,8 +117,13 @@ def test_canonical_investigation_uses_all_four_tools_and_maps_request_identity(m
     body = response.json()
     assert body["investigationId"] == "request-owned-id"
     assert body["actionProposal"] is None
-    assert body["evidence"][0]["source"] == "get_logs"
-    assert set(toolset.calls) == READ_TOOLS
+    assert body["evidence"][0]["source"] == "get_service_health"
+    evidence_text = " ".join(item["summary"] for item in body["evidence"])
+    assert "instance-3" in evidence_text
+    assert "1.8.4" in evidence_text
+    assert "PaymentGatewayClient" in evidence_text
+    assert "INC-142" in evidence_text
+    assert set(toolset.calls) == set(REQUIRED_READ_TOOLS)
     assert len(toolset.calls) == 4
 
 
@@ -113,13 +131,41 @@ def test_agent_has_no_write_or_unlisted_tools() -> None:
     toolset = RecordingReadToolset()
     agent = create_investigation_agent(TestModel(), toolset)
 
-    assert READ_TOOLS == {
-        "get_service_health",
-        "get_deployment",
-        "get_logs",
-        "get_known_incidents",
-    }
-    assert not {"restart_service", "rollback", "deploy"}.intersection(READ_TOOLS)
+    discovered = asyncio.run(toolset.get_tools(None))
+    assert set(discovered) == set(REQUIRED_READ_TOOLS)
+    assert not {"restart_service", "rollback", "deploy", "execute_command"}.intersection(discovered)
+
+
+def test_missing_required_tool_fails_instead_of_returning_success(monkeypatch: Any) -> None:
+    toolset = RecordingReadToolset(enabled_tools=set(REQUIRED_READ_TOOLS) - {"get_logs"})
+    agent = create_investigation_agent(TestModel(custom_output_args={"summary": "unsupported"}), toolset)
+    monkeypatch.setattr(app_module, "create_runtime_agent", lambda: agent)
+
+    with TestClient(app_module.app) as client:
+        response = client.post(
+            "/internal/investigations",
+            json={"investigationId": "missing-tool", "question": "What happened?", "service": "checkout-api"},
+        )
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Investigation service unavailable."}
+
+
+def test_model_cannot_inject_trusted_evidence(monkeypatch: Any) -> None:
+    toolset = RecordingReadToolset()
+    agent = create_investigation_agent(
+        TestModel(custom_output_args={"summary": "diagnosis", "evidence": [{"source": "fake", "summary": "fake"}]}),
+        toolset,
+    )
+    monkeypatch.setattr(app_module, "create_runtime_agent", lambda: agent)
+
+    with TestClient(app_module.app) as client:
+        response = client.post(
+            "/internal/investigations",
+            json={"investigationId": "fake-evidence", "question": "What happened?", "service": "checkout-api"},
+        )
+
+    assert response.status_code == 503
 
 
 def test_unknown_service_fails_without_invented_diagnosis() -> None:
@@ -155,3 +201,19 @@ def test_model_or_mcp_failure_is_a_safe_service_error(monkeypatch: Any) -> None:
 
     assert response.status_code == 503
     assert response.json() == {"detail": "Investigation service unavailable."}
+
+
+def test_changed_tool_result_changes_only_corresponding_evidence(monkeypatch: Any) -> None:
+    toolset = RecordingReadToolset(result_overrides={"get_deployment": {"version": "1.8.5"}})
+    agent = create_investigation_agent(TestModel(custom_output_args={"summary": "diagnosis"}), toolset)
+    monkeypatch.setattr(app_module, "create_runtime_agent", lambda: agent)
+
+    with TestClient(app_module.app) as client:
+        response = client.post(
+            "/internal/investigations",
+            json={"investigationId": "changed-result", "question": "What happened?", "service": "checkout-api"},
+        )
+
+    assert response.status_code == 200
+    deployment_evidence = next(item for item in response.json()["evidence"] if item["source"] == "get_deployment")
+    assert "1.8.5" in deployment_evidence["summary"]

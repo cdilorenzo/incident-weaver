@@ -5,7 +5,7 @@ import os
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
-from agent import create_investigation_agent
+from agent import REQUIRED_READ_TOOLS, create_investigation_agent, evidence_summary
 from model_provider import ModelSettings, create_model
 from pydantic_ai.mcp import MCPServerStreamableHTTP
 
@@ -77,9 +77,9 @@ async def investigate(request: InvestigationRequest) -> InvestigationResult:
         raise HTTPException(status_code=422, detail="Unknown service. Supported service: checkout-api.")
 
     try:
-        agent = create_runtime_agent()
-        async with agent:
-            result = await agent.run(
+        investigation = create_runtime_agent()
+        async with investigation:
+            result = await investigation.run(
                 f"Service: {request.service}\n"
                 f"Deployment hint: {request.deployment or 'none'}\n"
                 f"Question: {request.question}"
@@ -87,17 +87,18 @@ async def investigate(request: InvestigationRequest) -> InvestigationResult:
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Investigation service unavailable.") from exc
 
+    evidence_calls = [call for call in investigation.trace.calls if call.name in REQUIRED_READ_TOOLS]
     return InvestigationResult(
         investigation_id=request.investigation_id,
         summary=result.output.summary,
         evidence=[
             EvidenceItem(
                 evidence_id=f"evidence-{index:03d}",
-                source=item.source,
-                summary=item.summary,
+                source=call.name,
+                summary=evidence_summary(call.result),
                 citations=[],
             )
-            for index, item in enumerate(result.output.evidence, start=1)
+            for index, call in enumerate(evidence_calls, start=1)
         ],
         action_proposal=None,
     )
