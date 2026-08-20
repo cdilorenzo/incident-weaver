@@ -44,18 +44,17 @@ class EvidenceItem(WireModel):
     citations: list[Citation]
 
 
-class ActionProposal(WireModel):
-    action_id: str = Field(min_length=1)
-    action_type: str = Field(min_length=1)
-    target: str = Field(min_length=1)
-    rationale: str = Field(min_length=1)
+class ActionProposalDraft(WireModel):
+    action_type: str = Field(min_length=1, max_length=64)
+    target: str = Field(min_length=1, max_length=128)
+    rationale: str = Field(min_length=1, max_length=500)
 
 
 class InvestigationResult(WireModel):
     investigation_id: str = Field(min_length=1)
     summary: str = Field(min_length=1)
     evidence: list[EvidenceItem]
-    action_proposal: ActionProposal | None = None
+    action_proposal: ActionProposalDraft | None = None
 
 app = FastAPI(title="IncidentWeaver AI Runtime")
 
@@ -127,6 +126,16 @@ async def investigate(request: InvestigationRequest) -> InvestigationResult:
         raise HTTPException(status_code=503, detail="Investigation service unavailable.") from exc
 
     evidence_calls = [call for call in investigation.trace.calls if call.name in REQUIRED_READ_TOOLS]
+    draft = result.output.action_proposal
+    sanitized_draft = (
+        ActionProposalDraft(
+            action_type=sanitize_untrusted_text(draft.action_type)[:64],
+            target=sanitize_untrusted_text(draft.target)[:128],
+            rationale=sanitize_untrusted_text(draft.rationale)[:500],
+        )
+        if draft is not None
+        else None
+    )
     return InvestigationResult(
         investigation_id=request.investigation_id,
         summary=sanitize_untrusted_text(result.output.summary),
@@ -139,5 +148,5 @@ async def investigate(request: InvestigationRequest) -> InvestigationResult:
             )
             for index, call in enumerate(evidence_calls, start=1)
         ],
-        action_proposal=None,
+        action_proposal=sanitized_draft,
     )

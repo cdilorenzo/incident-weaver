@@ -134,15 +134,19 @@ public sealed class InvestigationTests : IClassFixture<WebApplicationFactory<Pro
 
     private sealed class FakeAiRuntimeClient(InvestigationResult result) : IAiRuntimeClient
     {
-        public Task<InvestigationResult> InvestigateAsync(
+        public Task<RuntimeInvestigationResult> InvestigateAsync(
             InvestigationRequest request,
-            CancellationToken cancellationToken) => Task.FromResult(result);
+            CancellationToken cancellationToken) => Task.FromResult(new RuntimeInvestigationResult(
+                result.InvestigationId,
+                result.Summary,
+                result.Evidence,
+                null));
     }
 
     private sealed class ThrowingAiRuntimeClient(Exception exception) : IAiRuntimeClient
     {
-        public Task<InvestigationResult> InvestigateAsync(
+        public Task<RuntimeInvestigationResult> InvestigateAsync(
             InvestigationRequest request,
-            CancellationToken cancellationToken) => Task.FromException<InvestigationResult>(exception);
+            CancellationToken cancellationToken) => Task.FromException<RuntimeInvestigationResult>(exception);
     }
 }

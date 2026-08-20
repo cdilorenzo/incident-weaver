@@ -1,13 +1,14 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using ControlPlane.Contracts;
 
 namespace ControlPlane.Services;
 
 public interface IAiRuntimeClient
 {
-    Task<InvestigationResult> InvestigateAsync(
+    Task<RuntimeInvestigationResult> InvestigateAsync(
         InvestigationRequest request,
         CancellationToken cancellationToken);
 }
@@ -23,7 +24,12 @@ public sealed class AiRuntimeContractException(string message, Exception? innerE
 
 public sealed class AiRuntimeClient(HttpClient httpClient) : IAiRuntimeClient
 {
-    public async Task<InvestigationResult> InvestigateAsync(
+    private static readonly JsonSerializerOptions RuntimeJsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow
+    };
+
+    public async Task<RuntimeInvestigationResult> InvestigateAsync(
         InvestigationRequest request,
         CancellationToken cancellationToken)
     {
@@ -36,10 +42,11 @@ public sealed class AiRuntimeClient(HttpClient httpClient) : IAiRuntimeClient
             throw new AiRuntimeHttpException(response.StatusCode);
         }
 
-        InvestigationResult? result;
+        RuntimeInvestigationResult? result;
         try
         {
-            result = await response.Content.ReadFromJsonAsync<InvestigationResult>(
+            result = await response.Content.ReadFromJsonAsync<RuntimeInvestigationResult>(
+                RuntimeJsonOptions,
                 cancellationToken);
         }
         catch (JsonException exception)
@@ -52,9 +59,9 @@ public sealed class AiRuntimeClient(HttpClient httpClient) : IAiRuntimeClient
         return ValidateResult(request, result);
     }
 
-    private static InvestigationResult ValidateResult(
+    private static RuntimeInvestigationResult ValidateResult(
         InvestigationRequest request,
-        InvestigationResult? result)
+        RuntimeInvestigationResult? result)
     {
         if (result is null || string.IsNullOrWhiteSpace(result.InvestigationId))
         {
@@ -99,8 +106,7 @@ public sealed class AiRuntimeClient(HttpClient httpClient) : IAiRuntimeClient
         }
 
         if (result.ActionProposal is { } proposal &&
-            (string.IsNullOrWhiteSpace(proposal.ActionId) ||
-             string.IsNullOrWhiteSpace(proposal.ActionType) ||
+            (string.IsNullOrWhiteSpace(proposal.ActionType) ||
              string.IsNullOrWhiteSpace(proposal.Target) ||
              string.IsNullOrWhiteSpace(proposal.Rationale)))
         {

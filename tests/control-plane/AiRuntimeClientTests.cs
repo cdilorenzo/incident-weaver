@@ -113,7 +113,7 @@ public sealed class AiRuntimeClientTests
         });
     }
 
-    private static InvestigationResult ValidResult() => new(
+    private static RuntimeInvestigationResult ValidResult() => new(
         Request.InvestigationId,
         "summary",
         [new EvidenceItem(
