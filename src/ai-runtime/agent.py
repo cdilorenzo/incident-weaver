@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import json
-import re
 from dataclasses import dataclass, field
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.toolsets import AbstractToolset, ToolsetTool
+
+from text_safety import sanitize_untrusted_text
 
 
 class InvestigationAgentOutput(BaseModel):
@@ -113,20 +114,6 @@ class GroundedInvestigation:
         return result
 
 
-_CREDENTIAL_VALUE_PATTERN = re.compile(
-    r"(?i)(api[_-]?key|access[_-]?token|password|secret|authorization)\s*[:=]\s*['\"]?([^\s,'\";]+)"
-)
-_BEARER_PATTERN = re.compile(r"(?i)\bbearer\s+[^\s,'\";]+")
-_MAX_LOG_MESSAGE_LENGTH = 300
-
-
-def _sanitize_text(value: Any) -> str:
-    text = str(value)
-    text = _BEARER_PATTERN.sub("Bearer [REDACTED]", text)
-    text = _CREDENTIAL_VALUE_PATTERN.sub(r"\1=[REDACTED]", text)
-    return text[:_MAX_LOG_MESSAGE_LENGTH]
-
-
 def _as_mapping(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
@@ -137,11 +124,11 @@ def evidence_summary(tool_name: str, result: Any) -> str:
     data = _as_mapping(result)
     if tool_name == "get_service_health":
         selected = {
-            "service": data.get("service"),
+            "service": sanitize_untrusted_text(data.get("service", "")),
             "instances": [
                 {
-                    "instance": instance.get("instance"),
-                    "status": instance.get("status"),
+                    "instance": sanitize_untrusted_text(instance.get("instance", "")),
+                    "status": sanitize_untrusted_text(instance.get("status", "")),
                     "healthy": instance.get("healthy"),
                 }
                 for instance in data.get("instances", [])
@@ -150,21 +137,21 @@ def evidence_summary(tool_name: str, result: Any) -> str:
         }
     elif tool_name == "get_deployment":
         selected = {
-            "service": data.get("service"),
-            "version": data.get("version"),
-            "deployed_at": data.get("deployed_at"),
-            "status": data.get("status"),
+            "service": sanitize_untrusted_text(data.get("service", "")),
+            "version": sanitize_untrusted_text(data.get("version", "")),
+            "deployed_at": sanitize_untrusted_text(data.get("deployed_at", "")),
+            "status": sanitize_untrusted_text(data.get("status", "")),
         }
     elif tool_name == "get_logs":
         selected = {
-            "service": data.get("service"),
+            "service": sanitize_untrusted_text(data.get("service", "")),
             "entries": [
                 {
-                    "event_id": entry.get("event_id"),
-                    "timestamp": entry.get("timestamp"),
-                    "instance": entry.get("instance"),
-                    "severity": entry.get("severity"),
-                    "message": _sanitize_text(entry.get("message", "")),
+                    "event_id": sanitize_untrusted_text(entry.get("event_id", "")),
+                    "timestamp": sanitize_untrusted_text(entry.get("timestamp", "")),
+                    "instance": sanitize_untrusted_text(entry.get("instance", "")),
+                    "severity": sanitize_untrusted_text(entry.get("severity", "")),
+                    "message": sanitize_untrusted_text(entry.get("message", "")),
                 }
                 for entry in data.get("entries", [])
                 if isinstance(entry, dict)
@@ -172,13 +159,16 @@ def evidence_summary(tool_name: str, result: Any) -> str:
         }
     elif tool_name == "get_known_incidents":
         selected = {
-            "service": data.get("service"),
+            "service": sanitize_untrusted_text(data.get("service", "")),
             "incidents": [
                 {
-                    "incident_id": incident.get("incident_id"),
-                    "service": incident.get("service"),
-                    "affected_instances": incident.get("affected_instances", []),
-                    "summary": _sanitize_text(incident.get("summary", "")),
+                    "incident_id": sanitize_untrusted_text(incident.get("incident_id", "")),
+                    "service": sanitize_untrusted_text(incident.get("service", "")),
+                    "affected_instances": [
+                        sanitize_untrusted_text(instance)
+                        for instance in incident.get("affected_instances", [])
+                    ],
+                    "summary": sanitize_untrusted_text(incident.get("summary", "")),
                 }
                 for incident in data.get("incidents", [])
                 if isinstance(incident, dict)

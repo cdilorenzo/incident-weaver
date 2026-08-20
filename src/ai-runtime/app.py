@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from agent import REQUIRED_READ_TOOLS, create_investigation_agent, evidence_summary
 from model_provider import ModelSettings, create_model
 from pydantic_ai.mcp import MCPServerStreamableHTTP
+from text_safety import sanitize_untrusted_text
 
 
 def to_camel(value: str) -> str:
@@ -90,7 +91,7 @@ async def investigate(request: InvestigationRequest) -> InvestigationResult:
     evidence_calls = [call for call in investigation.trace.calls if call.name in REQUIRED_READ_TOOLS]
     return InvestigationResult(
         investigation_id=request.investigation_id,
-        summary=result.output.summary,
+        summary=sanitize_untrusted_text(result.output.summary),
         evidence=[
             EvidenceItem(
                 evidence_id=f"evidence-{index:03d}",

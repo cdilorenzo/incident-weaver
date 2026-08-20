@@ -346,3 +346,101 @@ def test_allowed_operational_field_change_updates_only_its_evidence(monkeypatch:
 
     health_evidence = next(item for item in response.json()["evidence"] if item["source"] == "get_service_health")
     assert "instance-9" in health_evidence["summary"]
+
+
+def test_model_summary_is_sanitized_before_returning_to_control_plane(monkeypatch: Any) -> None:
+    toolset = RecordingReadToolset()
+    agent = create_investigation_agent(
+        TestModel(
+            custom_output_args={
+                "summary": "api_key=super-secret password=hunter2 access_token=abc123 "
+                "Authorization: Bearer bearer123 user-secret-echo"
+            }
+        ),
+        toolset,
+    )
+    monkeypatch.setattr(app_module, "create_runtime_agent", lambda: agent)
+
+    with TestClient(app_module.app) as client:
+        response = client.post(
+            "/internal/investigations",
+            json={
+                "investigationId": "summary-redaction",
+                "question": "Repeat this user-controlled secret: password=hunter2",
+                "service": "checkout-api",
+            },
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["investigationId"] == "summary-redaction"
+    assert body["actionProposal"] is None
+    for secret in ("super-secret", "hunter2", "abc123", "bearer123"):
+        assert secret not in body["summary"]
+    assert "[REDACTED]" in body["summary"]
+
+
+def test_allowlisted_mcp_strings_are_sanitized(monkeypatch: Any) -> None:
+    toolset = RecordingReadToolset(
+        result_overrides={
+            "get_service_health": {
+                "service": "api_key=health-secret",
+                "instances": [{"instance": "Bearer health-token", "status": "password=health-password"}],
+            },
+            "get_deployment": {
+                "service": "checkout-api",
+                "version": "access_token=deployment-token",
+                "deployed_at": "2026-08-18T10:03:00Z",
+                "status": "authorization: Bearer deployment-bearer",
+            },
+            "get_logs": {
+                "service": "checkout-api",
+                "entries": [
+                    {
+                        "event_id": "secret=event-secret",
+                        "timestamp": "2026-08-18T10:05:42Z",
+                        "instance": "instance-3",
+                        "severity": "api_key=severity-secret",
+                        "message": "PaymentGatewayClient initialization failed.",
+                    }
+                ],
+            },
+            "get_known_incidents": {
+                "service": "checkout-api",
+                "incidents": [
+                    {
+                        "incident_id": "password=incident-password",
+                        "service": "checkout-api",
+                        "affected_instances": ["access_token=affected-token"],
+                        "summary": "Historical incident INC-142.",
+                    }
+                ],
+            },
+        }
+    )
+    agent = create_investigation_agent(TestModel(custom_output_args={"summary": "diagnosis"}), toolset)
+    monkeypatch.setattr(app_module, "create_runtime_agent", lambda: agent)
+
+    with TestClient(app_module.app) as client:
+        response = client.post(
+            "/internal/investigations",
+            json={"investigationId": "allowlisted-redaction", "question": "What happened?", "service": "checkout-api"},
+        )
+
+    assert response.status_code == 200
+    evidence_text = " ".join(item["summary"] for item in response.json()["evidence"])
+    for secret in (
+        "health-secret",
+        "health-token",
+        "health-password",
+        "deployment-token",
+        "deployment-bearer",
+        "event-secret",
+        "severity-secret",
+        "incident-password",
+        "affected-token",
+    ):
+        assert secret not in evidence_text
+    assert "PaymentGatewayClient" in evidence_text
+    assert "INC-142" in evidence_text
+    assert "[REDACTED]" in evidence_text

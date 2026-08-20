@@ -21,7 +21,7 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-only-include = ["app.py", "agent.py", "model_provider.py"]
+only-include = ["app.py", "agent.py", "model_provider.py", "text_safety.py"]
 
 [tool.pytest.ini_options]
 pythonpath = [".", "../../tests/ai-runtime"]
