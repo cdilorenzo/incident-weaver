@@ -89,7 +89,7 @@ class RecordingReadToolset(AbstractToolset[None]):
                 "incidents": [{"incident_id": "INC-142", "summary": "PaymentGatewayClient initialization issue."}],
             },
         }
-        return self.result_overrides.get(name, canonical_results[name])
+        return {**canonical_results[name], **self.result_overrides.get(name, {})}
 
 
 def test_single_investigation_agent_is_constructed_with_only_read_tools() -> None:
@@ -250,3 +250,99 @@ def test_changed_tool_result_changes_only_corresponding_evidence(monkeypatch: An
     assert response.status_code == 200
     deployment_evidence = next(item for item in response.json()["evidence"] if item["source"] == "get_deployment")
     assert "1.8.5" in deployment_evidence["summary"]
+
+
+def test_unknown_mcp_fields_do_not_cross_evidence_boundary(monkeypatch: Any) -> None:
+    toolset = RecordingReadToolset(
+        result_overrides={
+            "get_deployment": {
+                "api_key": "secret-value",
+                "password": "password-value",
+                "internal_debug": "sensitive-debug-value",
+            }
+        }
+    )
+    agent = create_investigation_agent(TestModel(custom_output_args={"summary": "diagnosis"}), toolset)
+    monkeypatch.setattr(app_module, "create_runtime_agent", lambda: agent)
+
+    with TestClient(app_module.app) as client:
+        response = client.post(
+            "/internal/investigations",
+            json={"investigationId": "unknown-fields", "question": "What happened?", "service": "checkout-api"},
+        )
+
+    evidence_text = " ".join(item["summary"] for item in response.json()["evidence"])
+    assert "secret-value" not in evidence_text
+    assert "password-value" not in evidence_text
+    assert "sensitive-debug-value" not in evidence_text
+
+
+def test_credential_like_values_are_redacted_in_free_form_evidence(monkeypatch: Any) -> None:
+    toolset = RecordingReadToolset(
+        result_overrides={
+            "get_logs": {
+                "entries": [
+                    {
+                        "event_id": "sensitive-log",
+                        "timestamp": "2026-08-18T10:05:42Z",
+                        "instance": "instance-3",
+                        "severity": "ERROR",
+                        "message": (
+                            "api_key=key-value password:pass-value access_token=token-value "
+                            "authorization: Bearer bearer-value secret=secret-value"
+                        ),
+                        "internal_debug": "do-not-return",
+                    }
+                ]
+            },
+            "get_known_incidents": {
+                "incidents": [
+                    {
+                        "incident_id": "INC-143",
+                        "summary": "secret=incident-secret; historical failure",
+                        "password": "incident-password",
+                    }
+                ]
+            },
+        }
+    )
+    agent = create_investigation_agent(TestModel(custom_output_args={"summary": "diagnosis"}), toolset)
+    monkeypatch.setattr(app_module, "create_runtime_agent", lambda: agent)
+
+    with TestClient(app_module.app) as client:
+        response = client.post(
+            "/internal/investigations",
+            json={"investigationId": "redacted-fields", "question": "What happened?", "service": "checkout-api"},
+        )
+
+    evidence_text = " ".join(item["summary"] for item in response.json()["evidence"])
+    for sensitive_value in (
+        "key-value",
+        "pass-value",
+        "token-value",
+        "bearer-value",
+        "secret-value",
+        "incident-secret",
+        "incident-password",
+        "do-not-return",
+    ):
+        assert sensitive_value not in evidence_text
+    assert "PaymentGatewayClient" not in evidence_text
+    assert "[REDACTED]" in evidence_text
+
+
+def test_allowed_operational_field_change_updates_only_its_evidence(monkeypatch: Any) -> None:
+    toolset = RecordingReadToolset(
+        result_overrides={"get_service_health": {"instances": [{"instance": "instance-9", "status": "healthy"}]}}
+    )
+    agent = create_investigation_agent(TestModel(custom_output_args={"summary": "diagnosis"}), toolset)
+    monkeypatch.setattr(app_module, "create_runtime_agent", lambda: agent)
+
+    with TestClient(app_module.app) as client:
+        response = client.post(
+            "/internal/investigations",
+            json={"investigationId": "allowed-field", "question": "What happened?", "service": "checkout-api"},
+        )
+
+    health_evidence = next(item for item in response.json()["evidence"] if item["source"] == "get_service_health")
+    assert "instance-9" in health_evidence["summary"]

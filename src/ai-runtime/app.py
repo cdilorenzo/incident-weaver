@@ -95,7 +95,7 @@ async def investigate(request: InvestigationRequest) -> InvestigationResult:
             EvidenceItem(
                 evidence_id=f"evidence-{index:03d}",
                 source=call.name,
-                summary=evidence_summary(call.result),
+                summary=evidence_summary(call.name, call.result),
                 citations=[],
             )
             for index, call in enumerate(evidence_calls, start=1)
