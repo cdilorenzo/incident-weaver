@@ -17,6 +17,8 @@ services:
     build:
       context: .
       dockerfile: src/ai-runtime/Dockerfile
+    environment:
+      INCIDENTWEAVER_OPS_MCP_URL: http://ops-mcp:8001/mcp
 
   ops-mcp:
     build:

@@ -1,5 +1,13 @@
-from fastapi import FastAPI
+from __future__ import annotations
+
+import os
+
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
+
+from agent import create_investigation_agent
+from model_provider import ModelSettings, create_model
+from pydantic_ai.mcp import MCPServerStreamableHTTP
 
 
 def to_camel(value: str) -> str:
@@ -49,6 +57,14 @@ class InvestigationResult(WireModel):
 
 app = FastAPI(title="IncidentWeaver AI Runtime")
 
+OPS_MCP_URL = "http://ops-mcp:8001/mcp"
+
+
+def create_runtime_agent() -> object:
+    settings = ModelSettings.from_env()
+    read_mcp = MCPServerStreamableHTTP(os.getenv("INCIDENTWEAVER_OPS_MCP_URL", OPS_MCP_URL))
+    return create_investigation_agent(create_model(settings), read_mcp)
+
 
 @app.get("/health")
 async def health() -> dict[str, str]:
@@ -57,16 +73,31 @@ async def health() -> dict[str, str]:
 
 @app.post("/internal/investigations", response_model=InvestigationResult)
 async def investigate(request: InvestigationRequest) -> InvestigationResult:
+    if request.service.strip() != "checkout-api":
+        raise HTTPException(status_code=422, detail="Unknown service. Supported service: checkout-api.")
+
+    try:
+        agent = create_runtime_agent()
+        async with agent:
+            result = await agent.run(
+                f"Service: {request.service}\n"
+                f"Deployment hint: {request.deployment or 'none'}\n"
+                f"Question: {request.question}"
+            )
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Investigation service unavailable.") from exc
+
     return InvestigationResult(
         investigation_id=request.investigation_id,
-        summary=f"Deterministic investigation stub for {request.service}.",
+        summary=result.output.summary,
         evidence=[
             EvidenceItem(
-                evidence_id="evidence-stub-001",
-                source="deterministic-stub",
-                summary="No AI provider or operational tools are used in this slice.",
-                citations=[Citation(citation_id="citation-stub-001", reference="slice-002")],
+                evidence_id=f"evidence-{index:03d}",
+                source=item.source,
+                summary=item.summary,
+                citations=[],
             )
+            for index, item in enumerate(result.output.evidence, start=1)
         ],
         action_proposal=None,
     )
