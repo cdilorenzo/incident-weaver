@@ -13,6 +13,18 @@ public interface IAiRuntimeClient
         CancellationToken cancellationToken);
 }
 
+public sealed record RuntimeEvidenceItem(
+    [property: JsonPropertyName("evidenceId")]
+    string RuntimeEvidenceId,
+    string Source,
+    string Summary,
+    IReadOnlyList<Citation> Citations);
+
+public sealed record ActionProposalDraft(
+    string ActionType,
+    string Target,
+    string Rationale);
+
 public sealed class AiRuntimeHttpException(HttpStatusCode statusCode)
     : Exception($"AI runtime returned HTTP {(int)statusCode}.")
 {
@@ -84,7 +96,7 @@ public sealed class AiRuntimeClient(HttpClient httpClient) : IAiRuntimeClient
         foreach (var evidence in result.Evidence)
         {
             if (evidence is null ||
-                string.IsNullOrWhiteSpace(evidence.EvidenceId) ||
+                string.IsNullOrWhiteSpace(evidence.RuntimeEvidenceId) ||
                 string.IsNullOrWhiteSpace(evidence.Source) ||
                 string.IsNullOrWhiteSpace(evidence.Summary) ||
                 evidence.Citations is null)
@@ -108,7 +120,10 @@ public sealed class AiRuntimeClient(HttpClient httpClient) : IAiRuntimeClient
         if (result.ActionProposal is { } proposal &&
             (string.IsNullOrWhiteSpace(proposal.ActionType) ||
              string.IsNullOrWhiteSpace(proposal.Target) ||
-             string.IsNullOrWhiteSpace(proposal.Rationale)))
+             string.IsNullOrWhiteSpace(proposal.Rationale) ||
+             proposal.ActionType.Length > 64 ||
+             proposal.Target.Length > 128 ||
+             proposal.Rationale.Length > 500))
         {
             throw new AiRuntimeContractException(
                 "AI runtime returned an incomplete action proposal.");

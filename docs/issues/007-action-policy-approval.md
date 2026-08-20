@@ -20,11 +20,11 @@ Write MCP, privileged execution, credentials, durable persistence, RBAC/OAuth, a
 
 ## Trust boundaries
 
-Python may reason and propose. It cannot authorize, approve, execute, choose identity, create trusted evidence IDs, or provide lifecycle state. The Control Plane treats the draft as hostile input and owns proposal identity, evidence binding, policy, approval, and state. No component executes an action in this slice.
+Python may reason and propose. It cannot authorize, approve, execute, choose identity, create trusted evidence IDs, or provide lifecycle state. The Control Plane treats the draft and runtime evidence as hostile input and owns authoritative evidence identity, source classification used by policy, proposal binding, policy, approval, and state. Server-generated IDs establish ownership, not factual truth: Slice 007 does not provide independent cryptographic or source attestation of operational facts. No component executes an action in this slice.
 
 ## Proposal ownership
 
-The runtime draft has no `ActionId`, `InvestigationId`, service, evidence IDs, policy result, approval state, or execution state. The Control Plane creates an immutable authoritative proposal with server-generated `ActionId`, request-owned investigation/service, validated action semantics, and evidence IDs selected from the validated result.
+The runtime draft has no `ActionId`, `InvestigationId`, service, evidence IDs, policy result, approval state, or execution state. The Control Plane creates an immutable authoritative proposal with server-generated `ActionId`, request-owned investigation/service, validated action semantics, and evidence IDs selected from Control-Plane-bound evidence records. Runtime evidence IDs are transport data only and are never authoritative.
 
 ## Deterministic policy
 

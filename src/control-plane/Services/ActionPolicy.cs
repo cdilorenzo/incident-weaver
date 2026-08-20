@@ -15,23 +15,26 @@ public sealed record PolicyResult(PolicyDecision Decision, string ReasonCode)
 
 public interface IActionPolicy
 {
-    PolicyResult Evaluate(ActionProposal proposal, string validatedService, IReadOnlyList<EvidenceItem> evidence);
+    PolicyResult Evaluate(
+        ActionProposal proposal,
+        string validatedService,
+        IReadOnlyList<BoundEvidenceItem> evidence);
 }
 
 public sealed class DeterministicActionPolicy : IActionPolicy
 {
-    private static readonly string[] RequiredSources =
+    private static readonly OperationalEvidenceKind[] RequiredKinds =
     [
-        "get_service_health",
-        "get_logs",
-        "get_deployment",
-        "get_known_incidents"
+        OperationalEvidenceKind.ServiceHealth,
+        OperationalEvidenceKind.Logs,
+        OperationalEvidenceKind.Deployment,
+        OperationalEvidenceKind.KnownIncidents
     ];
 
     public PolicyResult Evaluate(
         ActionProposal proposal,
         string validatedService,
-        IReadOnlyList<EvidenceItem> evidence)
+        IReadOnlyList<BoundEvidenceItem> evidence)
     {
         if (proposal.ActionType != "restart_instance")
         {
@@ -56,21 +59,25 @@ public sealed class DeterministicActionPolicy : IActionPolicy
             return Denied("invalid_rationale");
         }
 
-        if (evidence.Count != evidence.Select(item => item.EvidenceId).Distinct(StringComparer.Ordinal).Count())
+        if (evidence.Count != evidence.Select(item => item.Evidence.EvidenceId).Distinct(StringComparer.Ordinal).Count())
         {
             return Denied("invalid_evidence_binding");
         }
 
-        var evidenceById = evidence.ToDictionary(item => item.EvidenceId);
+        var evidenceById = evidence.ToDictionary(item => item.Evidence.EvidenceId);
         if (proposal.EvidenceIds.Count == 0 || proposal.EvidenceIds.Any(id => !evidenceById.ContainsKey(id)))
         {
             return Denied("invalid_evidence_binding");
         }
 
-        var sources = proposal.EvidenceIds
-            .Select(id => evidenceById[id].Source)
-            .ToHashSet(StringComparer.Ordinal);
-        if (!RequiredSources.All(sources.Contains))
+        var kinds = proposal.EvidenceIds
+            .Select(id => evidenceById[id].Kind)
+            .Where(kind => kind is not null)
+            .Select(kind => kind!.Value)
+            .ToHashSet();
+        if (proposal.EvidenceIds.Count != kinds.Count ||
+            proposal.EvidenceIds.Count != RequiredKinds.Length ||
+            !RequiredKinds.All(kinds.Contains))
         {
             return Denied("missing_required_operational_evidence");
         }

@@ -9,6 +9,7 @@ builder.Services.AddHttpClient<IAiRuntimeClient, AiRuntimeClient>(client =>
 });
 builder.Services.AddSingleton<IActionPolicy, DeterministicActionPolicy>();
 builder.Services.AddSingleton<IActionStateStore, InMemoryActionStateStore>();
+builder.Services.AddSingleton<ControlPlaneEvidenceBinder>();
 builder.Services.AddSingleton<ActionLifecycle>();
 
 var app = builder.Build();
@@ -24,6 +25,11 @@ app.MapPost("/investigations", async (
     if (request is null || !IsValid(request))
     {
         return Results.BadRequest(new { error = "InvestigationId, Question, and Service are required." });
+    }
+
+    if (!SupportedServices.IsSupported(request.Service))
+    {
+        return Results.UnprocessableEntity(new { error = "Unsupported service." });
     }
 
     try

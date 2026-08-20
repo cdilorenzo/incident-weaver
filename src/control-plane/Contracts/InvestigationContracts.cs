@@ -12,11 +12,6 @@ public sealed record InvestigationResult(
     IReadOnlyList<EvidenceItem> Evidence,
     ActionProposal? ActionProposal);
 
-public sealed record ActionProposalDraft(
-    string ActionType,
-    string Target,
-    string Rationale);
-
 public sealed record EvidenceItem(
     string EvidenceId,
     string Source,

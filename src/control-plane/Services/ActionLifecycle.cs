@@ -5,21 +5,23 @@ namespace ControlPlane.Services;
 public sealed record RuntimeInvestigationResult(
     string InvestigationId,
     string Summary,
-    IReadOnlyList<EvidenceItem> Evidence,
+    IReadOnlyList<RuntimeEvidenceItem> Evidence,
     ActionProposalDraft? ActionProposal);
 
 public sealed class ActionLifecycle(
     IActionPolicy policy,
-    IActionStateStore store)
+    IActionStateStore store,
+    ControlPlaneEvidenceBinder evidenceBinder)
 {
     public InvestigationResult BindAndEvaluate(
         InvestigationRequest request,
         RuntimeInvestigationResult runtimeResult)
     {
+        var boundEvidence = evidenceBinder.Bind(runtimeResult.Evidence);
         var publicResult = new InvestigationResult(
             request.InvestigationId,
             runtimeResult.Summary,
-            runtimeResult.Evidence,
+            boundEvidence.Select(item => item.Evidence).ToArray(),
             null);
 
         if (runtimeResult.ActionProposal is not { } draft)
@@ -27,11 +29,9 @@ public sealed class ActionLifecycle(
             return publicResult;
         }
 
-        var evidenceIds = runtimeResult.Evidence
-            .Where(item => item.Source is
-                "get_service_health" or "get_logs" or "get_deployment" or "get_known_incidents")
-            .Select(item => item.EvidenceId)
-            .Distinct(StringComparer.Ordinal)
+        var evidenceIds = boundEvidence
+            .Where(item => item.Kind is not null)
+            .Select(item => item.Evidence.EvidenceId)
             .ToArray();
         var proposal = new ActionProposal(
             Guid.NewGuid().ToString("N"),
@@ -41,7 +41,7 @@ public sealed class ActionLifecycle(
             draft.Target,
             draft.Rationale,
             evidenceIds);
-        var policyResult = policy.Evaluate(proposal, request.Service, publicResult.Evidence);
+        var policyResult = policy.Evaluate(proposal, request.Service, boundEvidence);
         var state = new ActionState(
             proposal,
             policyResult,
