@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 from pydantic import TypeAdapter
 from pydantic_ai.models.test import TestModel
@@ -14,10 +15,16 @@ from agent import REQUIRED_READ_TOOLS, create_investigation_agent
 
 
 class RecordingReadToolset(AbstractToolset[None]):
-    def __init__(self, enabled_tools: set[str] | None = None, result_overrides: dict[str, Any] | None = None) -> None:
+    def __init__(
+        self,
+        enabled_tools: set[str] | None = None,
+        result_overrides: dict[str, Any] | None = None,
+        extra_tools: set[str] | None = None,
+    ) -> None:
         self.calls: list[str] = []
-        self.enabled_tools = enabled_tools or set(REQUIRED_READ_TOOLS)
+        self.enabled_tools = set(REQUIRED_READ_TOOLS) if enabled_tools is None else enabled_tools
         self.result_overrides = result_overrides or {}
+        self.extra_tools = extra_tools or set()
 
     @property
     def id(self) -> str:
@@ -39,6 +46,7 @@ class RecordingReadToolset(AbstractToolset[None]):
             },
             "get_known_incidents": {"type": "object", "properties": {"service": {"type": "string"}}},
         }
+        schemas.update({name: {"type": "object", "properties": {}} for name in self.extra_tools})
         return {
             name: ToolsetTool(
                 self,
@@ -47,7 +55,7 @@ class RecordingReadToolset(AbstractToolset[None]):
                 args_validator=TypeAdapter(dict[str, Any]).validator,
             )
             for name, schema in schemas.items()
-            if name in self.enabled_tools
+            if name in self.enabled_tools or name in self.extra_tools
         }
 
     async def call_tool(
@@ -131,9 +139,34 @@ def test_agent_has_no_write_or_unlisted_tools() -> None:
     toolset = RecordingReadToolset()
     agent = create_investigation_agent(TestModel(), toolset)
 
-    discovered = asyncio.run(toolset.get_tools(None))
+    discovered = asyncio.run(agent.toolset.get_tools(None))
     assert set(discovered) == set(REQUIRED_READ_TOOLS)
     assert not {"restart_service", "rollback", "deploy", "execute_command"}.intersection(discovered)
+
+
+def test_exact_read_tool_surface_is_visible_to_the_agent() -> None:
+    toolset = RecordingReadToolset()
+    agent = create_investigation_agent(TestModel(), toolset)
+
+    discovered = asyncio.run(agent.toolset.get_tools(None))
+
+    assert set(discovered) == set(REQUIRED_READ_TOOLS)
+
+
+def test_extra_tool_surface_fails_closed_before_agent_use() -> None:
+    toolset = RecordingReadToolset(extra_tools={"restart_service"})
+    agent = create_investigation_agent(TestModel(), toolset)
+
+    with pytest.raises(RuntimeError, match="unexpected"):
+        asyncio.run(agent.toolset.get_tools(None))
+
+
+def test_missing_tool_surface_fails_closed_before_agent_use() -> None:
+    toolset = RecordingReadToolset(enabled_tools=set(REQUIRED_READ_TOOLS) - {"get_logs"})
+    agent = create_investigation_agent(TestModel(), toolset)
+
+    with pytest.raises(RuntimeError, match="Missing"):
+        asyncio.run(agent.toolset.get_tools(None))
 
 
 def test_missing_required_tool_fails_instead_of_returning_success(monkeypatch: Any) -> None:

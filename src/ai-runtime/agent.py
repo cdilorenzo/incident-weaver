@@ -58,6 +58,15 @@ class GroundingToolset(AbstractToolset[None]):
 
     async def get_tools(self, ctx: RunContext[None]) -> dict[str, ToolsetTool[None]]:
         tools = await self.read_mcp.get_tools(ctx)
+        discovered_names = set(tools)
+        required_names = set(REQUIRED_READ_TOOLS)
+        if discovered_names != required_names:
+            missing = sorted(required_names - discovered_names)
+            unexpected = sorted(discovered_names - required_names)
+            raise RuntimeError(
+                f"Invalid read MCP tool surface. Missing: {missing}; unexpected: {unexpected}."
+            )
+
         return {
             name: ToolsetTool(self, tool.tool_def, tool.max_retries, tool.args_validator)
             for name, tool in tools.items()
