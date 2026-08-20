@@ -88,7 +88,9 @@ public sealed class ActionPolicyTests
         store.Add(new ActionState(
             proposal,
             new PolicyResult(PolicyDecision.Allowed, "allowed_restart_instance"),
-            ActionApprovalState.PendingApproval));
+            ActionApprovalState.PendingApproval,
+            ActionExecutionState.NotStarted,
+            DateTimeOffset.UtcNow));
 
         Assert.True(store.TryTransition(proposal.ActionId, ActionApprovalState.Approved, out var approved));
         Assert.Equal(ActionApprovalState.Approved, approved!.ApprovalState);

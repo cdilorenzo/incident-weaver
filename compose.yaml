@@ -7,6 +7,10 @@ services:
       - "8080:8080"
     environment:
       AiRuntime__Url: http://ai-runtime:8000
+      WriteMcp__Url: http://ops-mcp-write:8002
+    networks:
+      - control-ai
+      - control-write
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
       interval: 10s
@@ -23,13 +27,31 @@ services:
     depends_on:
       knowledge-db:
         condition: service_healthy
+    networks:
+      - control-ai
+      - ai-read
 
   ops-mcp:
     build:
       context: .
       dockerfile: src/ops-mcp/Dockerfile
+    networks:
+      - ai-read
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  ops-mcp-write:
+    build:
+      context: .
+      dockerfile: src/ops-mcp/Dockerfile
+    command: ["python", "write_server.py"]
+    networks:
+      - control-write
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/health')"]
       interval: 10s
       timeout: 3s
       retries: 3
@@ -40,8 +62,15 @@ services:
       POSTGRES_DB: incidentweaver_ai
       POSTGRES_USER: incidentweaver_ai
       POSTGRES_PASSWORD: ${INCIDENTWEAVER_KNOWLEDGE_DB_PASSWORD:?Set%20INCIDENTWEAVER_KNOWLEDGE_DB_PASSWORD}
+    networks:
+      - ai-read
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U incidentweaver_ai -d incidentweaver_ai"]
       interval: 10s
       timeout: 5s
       retries: 5
+
+networks:
+  control-ai:
+  ai-read:
+  control-write:
