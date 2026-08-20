@@ -27,7 +27,7 @@ public sealed class AiRuntimeClientTests
         Assert.Equal(expected.ActionProposal, actual.ActionProposal);
         var actualEvidence = Assert.Single(actual.Evidence);
         var expectedEvidence = Assert.Single(expected.Evidence);
-        Assert.Equal(expectedEvidence.EvidenceId, actualEvidence.EvidenceId);
+        Assert.Equal(expectedEvidence.RuntimeEvidenceId, actualEvidence.RuntimeEvidenceId);
         Assert.Equal(expectedEvidence.Source, actualEvidence.Source);
         Assert.Equal(expectedEvidence.Summary, actualEvidence.Summary);
         var actualCitation = Assert.Single(actualEvidence.Citations);
@@ -80,6 +80,25 @@ public sealed class AiRuntimeClientTests
             () => client.InvestigateAsync(Request, CancellationToken.None));
     }
 
+    [Theory]
+    [InlineData(65, 10, 10)]
+    [InlineData(10, 129, 10)]
+    [InlineData(10, 10, 501)]
+    public async Task Oversized_proposal_draft_is_rejected(int actionTypeLength, int targetLength, int rationaleLength)
+    {
+        var result = ValidResult() with
+        {
+            ActionProposal = new ActionProposalDraft(
+                new string('a', actionTypeLength),
+                new string('b', targetLength),
+                new string('c', rationaleLength))
+        };
+        var client = CreateClient(JsonContent.Create(result));
+
+        await Assert.ThrowsAsync<AiRuntimeContractException>(
+            () => client.InvestigateAsync(Request, CancellationToken.None));
+    }
+
     [Fact]
     public async Task Non_success_response_is_distinguished_from_transport_failure()
     {
@@ -113,10 +132,10 @@ public sealed class AiRuntimeClientTests
         });
     }
 
-    private static InvestigationResult ValidResult() => new(
+    private static RuntimeInvestigationResult ValidResult() => new(
         Request.InvestigationId,
         "summary",
-        [new EvidenceItem(
+        [new RuntimeEvidenceItem(
             "evidence-1",
             "logs",
             "failure",

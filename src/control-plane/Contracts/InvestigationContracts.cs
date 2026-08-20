@@ -24,6 +24,9 @@ public sealed record Citation(
 
 public sealed record ActionProposal(
     string ActionId,
+    string InvestigationId,
     string ActionType,
+    string Service,
     string Target,
-    string Rationale);
+    string Rationale,
+    IReadOnlyList<string> EvidenceIds);

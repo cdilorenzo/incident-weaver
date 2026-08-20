@@ -135,6 +135,69 @@ def test_canonical_investigation_uses_all_four_tools_and_maps_request_identity(m
     assert len(toolset.calls) == 4
 
 
+def test_model_can_return_only_an_sanitized_advisory_proposal_draft(monkeypatch: Any) -> None:
+    toolset = RecordingReadToolset()
+    agent = create_investigation_agent(
+        TestModel(
+            custom_output_args={
+                "summary": "The unhealthy instance has a startup dependency failure.",
+                "action_proposal": {
+                    "action_type": "restart_instance",
+                    "target": "instance-3",
+                    "rationale": "api_key=do-not-leak; restart the unhealthy instance.",
+                    "action_id": "model-must-not-control",
+                    "policy": "allowed",
+                    "approval_state": "approved",
+                },
+            }
+        ),
+        toolset,
+    )
+    monkeypatch.setattr(app_module, "create_runtime_agent", lambda: agent)
+
+    with TestClient(app_module.app) as client:
+        response = client.post(
+            "/internal/investigations",
+            json={"investigationId": "proposal-draft", "question": "What happened?", "service": "checkout-api"},
+        )
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Investigation service unavailable."}
+
+
+def test_canonical_investigation_returns_sanitized_proposal_draft(monkeypatch: Any) -> None:
+    toolset = RecordingReadToolset()
+    agent = create_investigation_agent(
+        TestModel(
+            custom_output_args={
+                "summary": "The unhealthy instance has a startup dependency failure.",
+                "action_proposal": {
+                    "action_type": "restart_instance",
+                    "target": "instance-3",
+                    "rationale": "api_key=do-not-leak; restart the unhealthy instance.",
+                },
+            }
+        ),
+        toolset,
+    )
+    monkeypatch.setattr(app_module, "create_runtime_agent", lambda: agent)
+
+    with TestClient(app_module.app) as client:
+        response = client.post(
+            "/internal/investigations",
+            json={"investigationId": "valid-proposal", "question": "What happened?", "service": "checkout-api"},
+        )
+
+    assert response.status_code == 200
+    proposal = response.json()["actionProposal"]
+    assert proposal == {
+        "actionType": "restart_instance",
+        "target": "instance-3",
+        "rationale": "api_key=[REDACTED]; restart the unhealthy instance.",
+    }
+    assert "actionId" not in proposal
+
+
 def test_agent_has_no_write_or_unlisted_tools() -> None:
     toolset = RecordingReadToolset()
     agent = create_investigation_agent(TestModel(), toolset)
