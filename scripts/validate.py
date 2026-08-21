@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import os
+import tempfile
 import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-PYTHON = ROOT / ".venv" / ("Scripts" if os.name == "nt" else "bin") / "python"
-PYRIGHT = ROOT / ".venv" / ("Scripts" if os.name == "nt" else "bin") / "pyright"
+BIN = ROOT / ".venv" / ("Scripts" if os.name == "nt" else "bin")
+PYTHON = BIN / ("python.exe" if os.name == "nt" else "python")
+PYRIGHT = BIN / ("pyright.exe" if os.name == "nt" else "pyright")
 
 
 def run(name: str, command: list[str], cwd: Path = ROOT, env: dict[str, str] | None = None) -> bool:
@@ -26,11 +28,13 @@ def main() -> int:
     if not PYTHON.exists() or not PYRIGHT.exists():
         print(f"[FAIL] environment: canonical interpreter missing at {PYTHON}")
         return 1
+    wheel_dir = Path(tempfile.mkdtemp(prefix="incident-weaver-wheels-"))
     checks: list[tuple[str, list[str], Path, dict[str, str] | None]] = [
         ("pyright", [str(PYRIGHT), "--project", "pyrightconfig.json"], ROOT, None),
         ("pytest", [str(PYTHON), "-m", "pytest"], ROOT, None),
-        ("ai-runtime build", [str(PYTHON), "-m", "pip", "wheel", "--no-deps", "."], ROOT / "src" / "ai-runtime", None),
-        ("ops-mcp build", [str(PYTHON), "-m", "pip", "wheel", "--no-deps", "."], ROOT / "src" / "ops-mcp", None),
+        ("public FastMCP import", [str(PYTHON), "-c", "from mcp.server.fastmcp import FastMCP; print(FastMCP)"], ROOT, None),
+        ("ai-runtime build", [str(PYTHON), "-m", "pip", "wheel", "--no-deps", "--wheel-dir", str(wheel_dir), "."], ROOT / "src" / "ai-runtime", None),
+        ("ops-mcp build", [str(PYTHON), "-m", "pip", "wheel", "--no-deps", "--wheel-dir", str(wheel_dir), "."], ROOT / "src" / "ops-mcp", None),
         ("dotnet format", ["dotnet", "format", "IncidentWeaver.sln", "--verify-no-changes", "--verbosity", "minimal"], ROOT, None),
         ("dotnet build", ["dotnet", "build", "IncidentWeaver.sln", "--nologo", "--verbosity", "minimal"], ROOT, None),
         ("dotnet test", ["dotnet", "test", "IncidentWeaver.sln", "--nologo", "--verbosity", "minimal"], ROOT, None),

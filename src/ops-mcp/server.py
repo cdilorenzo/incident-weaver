@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from datetime import datetime, timezone
 from typing import NotRequired, TypedDict
 
@@ -164,6 +162,10 @@ OPERATIONAL_DATA: dict[str, ServiceData] = {
 server = FastMCP(
     name="incidentweaver-ops-read",
     instructions="Read-only operational evidence tools for IncidentWeaver.",
+    host="0.0.0.0",
+    port=8001,
+    streamable_http_path="/mcp",
+    json_response=True,
 )
 
 
@@ -224,9 +226,6 @@ def get_known_incidents(service: str) -> KnownIncidentResult:
 
 
 app = server.streamable_http_app(
-    streamable_http_path="/mcp",
-    json_response=True,
-    host="0.0.0.0",
 )
 
 

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from typing import TypedDict
 
 from fastapi.responses import JSONResponse
@@ -35,6 +33,10 @@ def _validate_instance(instance: str) -> str:
 server = FastMCP(
     name="incidentweaver-ops-write",
     instructions="Write-only operational capability for privileged restart of a known instance.",
+    host="0.0.0.0",
+    port=8002,
+    streamable_http_path="/mcp",
+    json_response=True,
 )
 
 
@@ -61,9 +63,6 @@ def restart_instance(action_id: str, service: str, instance: str) -> RestartResu
 
 
 app = server.streamable_http_app(
-    streamable_http_path="/mcp",
-    json_response=True,
-    host="0.0.0.0",
 )
 
 

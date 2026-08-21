@@ -10,8 +10,9 @@ requires-python = ">=3.13"
 dependencies = [
     "fastapi>=0.115,<1.0",
     "pydantic>=2.10,<3.0",
-    "pydantic-ai-slim[openai,mcp]>=0.0.46,<1.0",
+    "pydantic-ai-slim[openai,mcp]==0.8.0",
     "psycopg[binary]>=3.2,<4.0",
+    "opentelemetry-api>=1.28,<1.44",
     "uvicorn[standard]>=0.34,<1.0",
 ]
 

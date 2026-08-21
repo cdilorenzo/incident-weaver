@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+from httpx2 import Response
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import TypeAdapter
@@ -16,6 +17,10 @@ import app as app_module
 from agent import REQUIRED_READ_TOOLS, create_investigation_agent
 
 
+def _investigation_result(response: Response) -> app_module.InvestigationResult:
+    return app_module.InvestigationResult.model_validate(response.json())
+
+
 def _make_run_context() -> RunContext[None]:
     return RunContext(deps=None, model=TestModel(), usage=RunUsage())
 
@@ -25,10 +30,10 @@ class ToolArgsValidator:
         self.adapter = adapter
 
     def validate_python(self, input: Any, **kwargs: Any) -> Any:
-        return self.adapter.validate_python(input, **kwargs)
+        return self.adapter.validate_python(input)
 
     def validate_json(self, input: str | bytes | bytearray, **kwargs: Any) -> Any:
-        return self.adapter.validate_json(input, **kwargs)
+        return self.adapter.validate_json(input)
 
 
 class RecordingReadToolset(AbstractToolset[None]):
@@ -139,11 +144,11 @@ def test_canonical_investigation_uses_all_four_tools_and_maps_request_identity(m
         )
 
     assert response.status_code == 200
-    body = response.json()
-    assert body["investigationId"] == "request-owned-id"
-    assert body["actionProposal"] is None
-    assert body["evidence"][0]["source"] == "get_service_health"
-    evidence_text = " ".join(item["summary"] for item in body["evidence"])
+    body = _investigation_result(response)
+    assert body.investigation_id == "request-owned-id"
+    assert body.action_proposal is None
+    assert body.evidence[0].source == "get_service_health"
+    evidence_text = " ".join(item.summary for item in body.evidence)
     assert "instance-3" in evidence_text
     assert "1.8.4" in evidence_text
     assert "PaymentGatewayClient" in evidence_text
@@ -206,13 +211,11 @@ def test_canonical_investigation_returns_sanitized_proposal_draft(monkeypatch: A
         )
 
     assert response.status_code == 200
-    proposal = response.json()["actionProposal"]
-    assert proposal == {
-        "actionType": "restart_instance",
-        "target": "instance-3",
-        "rationale": "api_key=[REDACTED]; restart the unhealthy instance.",
-    }
-    assert "actionId" not in proposal
+    proposal = _investigation_result(response).action_proposal
+    assert proposal is not None
+    assert proposal.action_type == "restart_instance"
+    assert proposal.target == "instance-3"
+    assert proposal.rationale == "api_key=[REDACTED]; restart the unhealthy instance."
 
 
 def test_agent_has_no_write_or_unlisted_tools() -> None:
@@ -328,8 +331,8 @@ def test_changed_tool_result_changes_only_corresponding_evidence(monkeypatch: An
         )
 
     assert response.status_code == 200
-    deployment_evidence = next(item for item in response.json()["evidence"] if item["source"] == "get_deployment")
-    assert "1.8.5" in deployment_evidence["summary"]
+    deployment_evidence = next(item for item in _investigation_result(response).evidence if item.source == "get_deployment")
+    assert "1.8.5" in deployment_evidence.summary
 
 
 def test_unknown_mcp_fields_do_not_cross_evidence_boundary(monkeypatch: Any) -> None:
@@ -351,7 +354,7 @@ def test_unknown_mcp_fields_do_not_cross_evidence_boundary(monkeypatch: Any) -> 
             json={"investigationId": "unknown-fields", "question": "What happened?", "service": "checkout-api"},
         )
 
-    evidence_text = " ".join(item["summary"] for item in response.json()["evidence"])
+    evidence_text = " ".join(item.summary for item in _investigation_result(response).evidence)
     assert "secret-value" not in evidence_text
     assert "password-value" not in evidence_text
     assert "sensitive-debug-value" not in evidence_text
@@ -395,7 +398,7 @@ def test_credential_like_values_are_redacted_in_free_form_evidence(monkeypatch: 
             json={"investigationId": "redacted-fields", "question": "What happened?", "service": "checkout-api"},
         )
 
-    evidence_text = " ".join(item["summary"] for item in response.json()["evidence"])
+    evidence_text = " ".join(item.summary for item in _investigation_result(response).evidence)
     for sensitive_value in (
         "key-value",
         "pass-value",
@@ -424,8 +427,8 @@ def test_allowed_operational_field_change_updates_only_its_evidence(monkeypatch:
             json={"investigationId": "allowed-field", "question": "What happened?", "service": "checkout-api"},
         )
 
-    health_evidence = next(item for item in response.json()["evidence"] if item["source"] == "get_service_health")
-    assert "instance-9" in health_evidence["summary"]
+    health_evidence = next(item for item in _investigation_result(response).evidence if item.source == "get_service_health")
+    assert "instance-9" in health_evidence.summary
 
 
 def test_model_summary_is_sanitized_before_returning_to_control_plane(monkeypatch: Any) -> None:
@@ -452,12 +455,12 @@ def test_model_summary_is_sanitized_before_returning_to_control_plane(monkeypatc
         )
 
     assert response.status_code == 200
-    body = response.json()
-    assert body["investigationId"] == "summary-redaction"
-    assert body["actionProposal"] is None
+    body = _investigation_result(response)
+    assert body.investigation_id == "summary-redaction"
+    assert body.action_proposal is None
     for secret in ("super-secret", "hunter2", "abc123", "bearer123"):
-        assert secret not in body["summary"]
-    assert "[REDACTED]" in body["summary"]
+        assert secret not in body.summary
+    assert "[REDACTED]" in body.summary
 
 
 def test_allowlisted_mcp_strings_are_sanitized(monkeypatch: Any) -> None:
@@ -508,7 +511,7 @@ def test_allowlisted_mcp_strings_are_sanitized(monkeypatch: Any) -> None:
         )
 
     assert response.status_code == 200
-    evidence_text = " ".join(item["summary"] for item in response.json()["evidence"])
+    evidence_text = " ".join(item.summary for item in _investigation_result(response).evidence)
     for secret in (
         "health-secret",
         "health-token",

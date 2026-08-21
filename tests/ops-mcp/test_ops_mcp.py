@@ -1,10 +1,11 @@
 import asyncio
 import importlib.util
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import pytest
-from mcp.shared.exceptions import MCPError as ToolError
+from mcp.server.fastmcp.exceptions import ToolError
+from pydantic import TypeAdapter
 
 ROOT = Path(__file__).parents[2]
 MODULE_PATH = ROOT / "src" / "ops-mcp" / "server.py"
@@ -36,13 +37,8 @@ FORBIDDEN_TOOLS = {
 
 
 def _structured_result(tool_name: str, arguments: dict[str, object]) -> dict[str, Any]:
-    result = asyncio.run(server.call_tool(tool_name, arguments))
-    result = cast(tuple[object, object], result)
-    assert isinstance(result, tuple)
-    assert len(result) == 2
-    structured = result[1]
-    assert isinstance(structured, dict)
-    return cast(dict[str, Any], structured)
+    result = TypeAdapter(tuple[object, object]).validate_python(asyncio.run(server.call_tool(tool_name, arguments)))
+    return TypeAdapter(dict[str, Any]).validate_python(result[1])
 
 
 def test_mcp_tool_discovery_lists_all_four_expected_read_tools() -> None:

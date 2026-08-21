@@ -1,12 +1,12 @@
 from pathlib import Path
 import asyncio
-import sys
-from types import SimpleNamespace
 
 import pytest
+from psycopg import sql
 from pydantic_ai import RunContext
 from pydantic_ai.usage import RunUsage
 
+import retrieval
 from app import knowledge_context, knowledge_evidence
 from embedding import DeterministicEmbeddingProvider
 from retrieval import (
@@ -165,7 +165,8 @@ def test_postgres_replacement_deletes_and_inserts_in_one_transaction(monkeypatch
             self.rollback_observed = exception_type is not None
 
         def execute(self, statement: object, parameters: tuple[object, ...] | None = None) -> None:
-            self.statements.append((str(statement), parameters))
+            rendered = statement.as_string(None) if isinstance(statement, sql.Composable) else str(statement)
+            self.statements.append((rendered, parameters))
 
         def commit(self) -> None:
             self.commits += 1
@@ -174,7 +175,7 @@ def test_postgres_replacement_deletes_and_inserts_in_one_transaction(monkeypatch
     def connect(_: object) -> RecordingConnection:
         return connection
 
-    monkeypatch.setitem(sys.modules, "psycopg", SimpleNamespace(connect=connect))
+    monkeypatch.setattr(retrieval.psycopg, "connect", connect)
     chunk = KnowledgeChunk("id", "reference", "title", 1, "content", "hash")
 
     asyncio.run(PostgresKnowledgeStore("dsn").replace_all([(chunk, [1.0, 2.0])]))
@@ -202,7 +203,8 @@ def test_postgres_replacement_rolls_back_when_insertion_fails(monkeypatch: pytes
                 self.rollbacks += 1
 
         def execute(self, statement: object, parameters: tuple[object, ...] | None = None) -> None:
-            if str(statement) == "DELETE FROM knowledge_chunks":
+            rendered = statement.as_string(None) if isinstance(statement, sql.Composable) else str(statement)
+            if rendered == "DELETE FROM knowledge_chunks":
                 self.working_rows.clear()
             else:
                 raise RuntimeError("insert failed")
@@ -215,7 +217,7 @@ def test_postgres_replacement_rolls_back_when_insertion_fails(monkeypatch: pytes
     def connect(_: object) -> FailingConnection:
         return connection
 
-    monkeypatch.setitem(sys.modules, "psycopg", SimpleNamespace(connect=connect))
+    monkeypatch.setattr(retrieval.psycopg, "connect", connect)
     chunk = KnowledgeChunk("id", "reference", "title", 1, "content", "hash")
 
     with pytest.raises(RuntimeError, match="insert failed"):

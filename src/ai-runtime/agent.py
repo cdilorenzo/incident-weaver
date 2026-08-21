@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any, TypeAlias
+from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.agent import AgentRunResult
 from pydantic_ai.models import Model
@@ -14,9 +14,10 @@ from retrieval import KnowledgeRetriever
 from text_safety import sanitize_untrusted_text
 
 
-JsonScalar: TypeAlias = str | int | float | bool | None
-JsonValue: TypeAlias = JsonScalar | list["JsonValue"] | dict[str, "JsonValue"]
-JsonObject: TypeAlias = dict[str, JsonValue]
+type JsonScalar = str | int | float | bool | None
+type JsonValue = JsonScalar | list[JsonValue] | dict[str, JsonValue]
+type JsonObject = dict[str, JsonValue]
+JSON_OBJECT_ADAPTER: TypeAdapter[JsonObject] = TypeAdapter(JsonObject)
 
 
 class ActionProposalDraft(BaseModel):
@@ -142,33 +143,11 @@ class GroundedInvestigation:
         return result
 
 
-def _json_value(value: object) -> JsonValue | None:
-    if value is None or isinstance(value, (str, int, float, bool)):
-        return value
-    if isinstance(value, list):
-        converted: list[JsonValue] = []
-        for item in value:
-            normalized = _json_value(item)
-            if normalized is None and item is not None:
-                return None
-            converted.append(normalized)
-        return converted
-    if isinstance(value, dict):
-        converted_object: JsonObject = {}
-        for key, item in value.items():
-            if not isinstance(key, str):
-                return None
-            normalized = _json_value(item)
-            if normalized is None and item is not None:
-                return None
-            converted_object[key] = normalized
-        return converted_object
-    return None
-
-
 def _as_json_object(value: object) -> JsonObject:
-    normalized = _json_value(value)
-    return normalized if isinstance(normalized, dict) else {}
+    try:
+        return JSON_OBJECT_ADAPTER.validate_python(value)
+    except ValidationError:
+        return {}
 
 
 def _as_scalar(value: Any, default: str = "") -> str:
@@ -194,7 +173,7 @@ def evidence_summary(tool_name: str, result: object) -> str:
                 }
                 for instance in _as_list(data.get("instances"))
                 if isinstance(instance, dict)
-                for instance_map in [_as_mapping(instance)]
+                for instance_map in [instance]
             ],
         }
     elif tool_name == "get_deployment":
@@ -217,7 +196,7 @@ def evidence_summary(tool_name: str, result: object) -> str:
                 }
                 for entry in _as_list(data.get("entries"))
                 if isinstance(entry, dict)
-                for entry_map in [_as_mapping(entry)]
+                for entry_map in [entry]
             ],
         }
     elif tool_name == "get_known_incidents":
@@ -235,7 +214,7 @@ def evidence_summary(tool_name: str, result: object) -> str:
                 }
                 for incident in _as_list(data.get("incidents"))
                 if isinstance(incident, dict)
-                for incident_map in [_as_mapping(incident)]
+                for incident_map in [incident]
             ],
         }
     else:
