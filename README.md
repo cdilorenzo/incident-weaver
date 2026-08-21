@@ -1,5 +1,7 @@
 # IncidentWeaver
 
+![CI](https://github.com/cdilorenzo/incident-weaver/actions/workflows/ci.yml/badge.svg)
+
 > Production-oriented reference architecture for safe AI incident investigation and guarded remediation.
 
 IncidentWeaver is a compact, architecture-first reference implementation for investigating an operational incident with evidence, constrained tool use, deterministic policy, explicit approval, and auditable privileged execution. It is not presented as a production AIOps product or an autonomous remediation platform.

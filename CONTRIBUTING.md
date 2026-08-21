@@ -75,4 +75,4 @@ Keep pull requests focused and evidence-based:
 - validation result
 - architectural or security impact noted where relevant
 
-A reviewable PR explains why the change is in scope, how it preserves the trust boundary, and what evidence supports it.
+A reviewable PR explains why the change is in scope, how it preserves the trust boundary, and what evidence supports it. Pull requests must also pass the same quality gate in CI.
