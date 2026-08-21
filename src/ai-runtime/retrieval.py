@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Protocol, Sequence
 
 from embedding import EmbeddingProvider, EmbeddingSettings, AzureOpenAIEmbeddingProvider
-from text_safety import sanitize_untrusted_text
 
 
 MAX_CHUNK_LENGTH = 700

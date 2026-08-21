@@ -5,10 +5,15 @@ import os
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
-from agent import REQUIRED_READ_TOOLS, create_investigation_agent, evidence_summary
+from agent import (
+    REQUIRED_READ_TOOLS,
+    GroundedInvestigation,
+    create_investigation_agent,
+    evidence_summary,
+)
 from model_provider import ModelSettings, create_model
 from pydantic_ai.mcp import MCPServerStreamableHTTP
-from retrieval import create_configured_retriever, RetrievedChunk
+from retrieval import RetrievedChunk, create_configured_retriever
 from text_safety import sanitize_untrusted_text
 
 
@@ -61,9 +66,9 @@ app = FastAPI(title="IncidentWeaver AI Runtime")
 OPS_MCP_URL = "http://ops-mcp:8001/mcp"
 
 
-def create_runtime_agent() -> object:
+def create_runtime_agent() -> GroundedInvestigation:
     settings = ModelSettings.from_env()
-    read_mcp = MCPServerStreamableHTTP(os.getenv("INCIDENTWEAVER_OPS_MCP_URL", OPS_MCP_URL))
+    read_mcp = MCPServerStreamableHTTP(url=os.getenv("INCIDENTWEAVER_OPS_MCP_URL", OPS_MCP_URL))
     return create_investigation_agent(create_model(settings), read_mcp, create_configured_retriever())
 
 
@@ -111,7 +116,7 @@ async def investigate(request: InvestigationRequest) -> InvestigationResult:
     try:
         investigation = create_runtime_agent()
         retrieved: list[RetrievedChunk] = []
-        if getattr(investigation, "retriever", None) is not None:
+        if investigation.retriever is not None:
             retrieved = await investigation.retriever.retrieve(
                 request.question, request.service, request.deployment
             )

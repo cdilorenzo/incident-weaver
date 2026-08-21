@@ -15,3 +15,5 @@ For every implementation task:
 9. End with a concise summary of changed files, tests run, and any unresolved risks.
 
 If an issue conflicts with an accepted ADR, stop and explain the conflict instead of silently changing the architecture.
+
+Do not weaken typing, linting, analyzers, tests, or architecture checks to make generated code pass. Fix the cause or explicitly report an unavoidable third-party limitation.

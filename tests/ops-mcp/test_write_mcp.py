@@ -1,6 +1,7 @@
 import asyncio
 import importlib.util
 from pathlib import Path
+from typing import Any
 
 import pytest
 from mcp.server.fastmcp.exceptions import ToolError
@@ -9,9 +10,11 @@ ROOT = Path(__file__).parents[2]
 MODULE_PATH = ROOT / "src" / "ops-mcp" / "write_server.py"
 
 spec = importlib.util.spec_from_file_location("ops_mcp_write_server", MODULE_PATH)
+assert spec is not None
 module = importlib.util.module_from_spec(spec)
+assert spec.loader is not None
 spec.loader.exec_module(module)
-server = module.server
+server: Any = module.server
 
 EXPECTED_TOOLS = {"restart_instance"}
 FORBIDDEN_TOOLS = {"get_service_health", "get_logs", "get_deployment", "get_known_incidents", "restart_service", "deploy"}

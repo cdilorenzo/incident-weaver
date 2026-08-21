@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 from fastapi.testclient import TestClient
@@ -12,6 +12,35 @@ from pydantic_ai.tools import ToolDefinition
 
 import app as app_module
 from agent import REQUIRED_READ_TOOLS, create_investigation_agent
+
+
+class ToolArgsValidator:
+    def __init__(self, adapter: TypeAdapter[dict[str, Any]]) -> None:
+        self.adapter = adapter
+
+    def validate_python(
+        self,
+        input: Any,
+        *,
+        allow_partial: bool | Literal["off", "on", "trailing-strings"] = False,
+        **kwargs: Any,
+    ) -> Any:
+        try:
+            return self.adapter.validate_python(input, allow_partial=allow_partial, **kwargs)
+        except TypeError:
+            return self.adapter.validate_python(input, **kwargs)
+
+    def validate_json(
+        self,
+        input: str | bytes | bytearray,
+        *,
+        allow_partial: bool | Literal["off", "on", "trailing-strings"] = False,
+        **kwargs: Any,
+    ) -> Any:
+        try:
+            return self.adapter.validate_json(input, allow_partial=allow_partial, **kwargs)
+        except TypeError:
+            return self.adapter.validate_json(input, **kwargs)
 
 
 class RecordingReadToolset(AbstractToolset[None]):
@@ -52,7 +81,7 @@ class RecordingReadToolset(AbstractToolset[None]):
                 self,
                 ToolDefinition(name=name, parameters_json_schema=schema),
                 max_retries=1,
-                args_validator=TypeAdapter(dict[str, Any]).validator,
+                args_validator=ToolArgsValidator(TypeAdapter(dict[str, Any])),
             )
             for name, schema in schemas.items()
             if name in self.enabled_tools or name in self.extra_tools
