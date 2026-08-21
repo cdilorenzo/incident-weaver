@@ -1,46 +1,34 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Literal
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import TypeAdapter
+from pydantic_ai import RunContext
 from pydantic_ai.models.test import TestModel
 from pydantic_ai.toolsets import AbstractToolset, ToolsetTool
 from pydantic_ai.tools import ToolDefinition
+from pydantic_ai.usage import RunUsage
 
 import app as app_module
 from agent import REQUIRED_READ_TOOLS, create_investigation_agent
+
+
+def _make_run_context() -> RunContext[None]:
+    return RunContext(deps=None, model=TestModel(), usage=RunUsage())
 
 
 class ToolArgsValidator:
     def __init__(self, adapter: TypeAdapter[dict[str, Any]]) -> None:
         self.adapter = adapter
 
-    def validate_python(
-        self,
-        input: Any,
-        *,
-        allow_partial: bool | Literal["off", "on", "trailing-strings"] = False,
-        **kwargs: Any,
-    ) -> Any:
-        try:
-            return self.adapter.validate_python(input, allow_partial=allow_partial, **kwargs)
-        except TypeError:
-            return self.adapter.validate_python(input, **kwargs)
+    def validate_python(self, input: Any, **kwargs: Any) -> Any:
+        return self.adapter.validate_python(input, **kwargs)
 
-    def validate_json(
-        self,
-        input: str | bytes | bytearray,
-        *,
-        allow_partial: bool | Literal["off", "on", "trailing-strings"] = False,
-        **kwargs: Any,
-    ) -> Any:
-        try:
-            return self.adapter.validate_json(input, allow_partial=allow_partial, **kwargs)
-        except TypeError:
-            return self.adapter.validate_json(input, **kwargs)
+    def validate_json(self, input: str | bytes | bytearray, **kwargs: Any) -> Any:
+        return self.adapter.validate_json(input, **kwargs)
 
 
 class RecordingReadToolset(AbstractToolset[None]):
@@ -231,7 +219,7 @@ def test_agent_has_no_write_or_unlisted_tools() -> None:
     toolset = RecordingReadToolset()
     agent = create_investigation_agent(TestModel(), toolset)
 
-    discovered = asyncio.run(agent.toolset.get_tools(None))
+    discovered = asyncio.run(agent.toolset.get_tools(_make_run_context()))
     assert set(discovered) == set(REQUIRED_READ_TOOLS)
     assert not {"restart_service", "rollback", "deploy", "execute_command"}.intersection(discovered)
 
@@ -240,7 +228,7 @@ def test_exact_read_tool_surface_is_visible_to_the_agent() -> None:
     toolset = RecordingReadToolset()
     agent = create_investigation_agent(TestModel(), toolset)
 
-    discovered = asyncio.run(agent.toolset.get_tools(None))
+    discovered = asyncio.run(agent.toolset.get_tools(_make_run_context()))
 
     assert set(discovered) == set(REQUIRED_READ_TOOLS)
 
@@ -250,19 +238,19 @@ def test_extra_tool_surface_fails_closed_before_agent_use() -> None:
     agent = create_investigation_agent(TestModel(), toolset)
 
     with pytest.raises(RuntimeError, match="unexpected"):
-        asyncio.run(agent.toolset.get_tools(None))
+        asyncio.run(agent.toolset.get_tools(_make_run_context()))
 
 
 def test_missing_tool_surface_fails_closed_before_agent_use() -> None:
-    toolset = RecordingReadToolset(enabled_tools=set(REQUIRED_READ_TOOLS) - {"get_logs"})
+    toolset = RecordingReadToolset(enabled_tools={"get_service_health", "get_deployment", "get_known_incidents"})
     agent = create_investigation_agent(TestModel(), toolset)
 
     with pytest.raises(RuntimeError, match="Missing"):
-        asyncio.run(agent.toolset.get_tools(None))
+        asyncio.run(agent.toolset.get_tools(_make_run_context()))
 
 
 def test_missing_required_tool_fails_instead_of_returning_success(monkeypatch: Any) -> None:
-    toolset = RecordingReadToolset(enabled_tools=set(REQUIRED_READ_TOOLS) - {"get_logs"})
+    toolset = RecordingReadToolset(enabled_tools={"get_service_health", "get_deployment", "get_known_incidents"})
     agent = create_investigation_agent(TestModel(custom_output_args={"summary": "unsupported"}), toolset)
     monkeypatch.setattr(app_module, "create_runtime_agent", lambda: agent)
 

@@ -4,7 +4,9 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi.responses import JSONResponse
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver.server import MCPServer
+
+FastMCP = MCPServer
 
 
 def parse_iso8601(value: str) -> datetime:
@@ -103,10 +105,6 @@ OPERATIONAL_DATA: dict[str, dict[str, Any]] = {
 server = FastMCP(
     name="incidentweaver-ops-read",
     instructions="Read-only operational evidence tools for IncidentWeaver.",
-    host="0.0.0.0",
-    port=8001,
-    streamable_http_path="/mcp",
-    json_response=True,
 )
 
 
@@ -166,7 +164,11 @@ def get_known_incidents(service: str) -> dict[str, Any]:
     return OPERATIONAL_DATA[normalized]["known_incidents"]
 
 
-app = server.streamable_http_app()
+app = server.streamable_http_app(
+    streamable_http_path="/mcp",
+    json_response=True,
+    host="0.0.0.0",
+)
 
 
 if __name__ == "__main__":

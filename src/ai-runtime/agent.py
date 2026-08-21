@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, cast
 
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic_ai import Agent, RunContext
@@ -45,7 +45,8 @@ class ToolCallRecord:
 
 @dataclass
 class InvestigationTrace:
-    calls: list[ToolCallRecord] = field(default_factory=list)
+    def __init__(self) -> None:
+        self.calls: list[ToolCallRecord] = []
 
     @property
     def successful_tool_names(self) -> set[str]:
@@ -136,21 +137,29 @@ class GroundedInvestigation:
         return result
 
 
-def _as_mapping(value: object) -> dict[str, object]:
+def _as_mapping(value: Any) -> dict[str, object]:
     if not isinstance(value, dict):
         return {}
-    return {str(key): item for key, item in value.items() if isinstance(key, str)}
+    mapping = cast(dict[object, object], value)
+    normalized: dict[str, object] = {}
+    for key, item in mapping.items():
+        if isinstance(key, str):
+            normalized[str(key)] = item
+    return normalized
 
 
-def _as_scalar(value: object, default: str = "") -> str:
+def _as_scalar(value: Any, default: str = "") -> str:
     return sanitize_untrusted_text(value) if isinstance(value, (str, int, float, bool)) else default
 
 
-def _as_list(value: object) -> list[object]:
-    return value if isinstance(value, list) else []
+def _as_list(value: Any) -> list[Any]:
+    if not isinstance(value, list):
+        return []
+    items = cast(list[object], value)
+    return [item for item in items]
 
 
-def evidence_summary(tool_name: str, result: object) -> str:
+def evidence_summary(tool_name: str, result: Any) -> str:
     """Render only deliberately selected operational fields for one MCP tool."""
 
     data = _as_mapping(result)

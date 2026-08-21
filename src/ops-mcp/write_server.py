@@ -3,7 +3,9 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi.responses import JSONResponse
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver.server import MCPServer
+
+FastMCP = MCPServer
 
 VALID_SERVICE = "checkout-api"
 VALID_INSTANCES = {"instance-1", "instance-2", "instance-3"}
@@ -28,10 +30,6 @@ def _validate_instance(instance: str) -> str:
 server = FastMCP(
     name="incidentweaver-ops-write",
     instructions="Write-only operational capability for privileged restart of a known instance.",
-    host="0.0.0.0",
-    port=8002,
-    streamable_http_path="/mcp",
-    json_response=True,
 )
 
 
@@ -57,7 +55,11 @@ def restart_instance(action_id: str, service: str, instance: str) -> dict[str, A
     }
 
 
-app = server.streamable_http_app()
+app = server.streamable_http_app(
+    streamable_http_path="/mcp",
+    json_response=True,
+    host="0.0.0.0",
+)
 
 
 if __name__ == "__main__":

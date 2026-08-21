@@ -7,6 +7,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, Sequence
 
+import psycopg
+from psycopg import sql
+
 from embedding import EmbeddingProvider, EmbeddingSettings, AzureOpenAIEmbeddingProvider
 
 
@@ -124,38 +127,48 @@ class PostgresKnowledgeStore:
         self.dimensions = dimensions
 
     async def initialize(self) -> None:
-        import psycopg
         with psycopg.connect(self.dsn) as connection:
-            connection.execute("CREATE EXTENSION IF NOT EXISTS vector")
-            connection.execute(f"""CREATE TABLE IF NOT EXISTS knowledge_chunks (
-                chunk_id TEXT PRIMARY KEY, reference TEXT NOT NULL, title TEXT NOT NULL,
-                chunk_index INTEGER NOT NULL, content TEXT NOT NULL, content_hash TEXT NOT NULL,
-                embedding vector({self.dimensions}) NOT NULL)""")
+            connection.execute(sql.SQL("CREATE EXTENSION IF NOT EXISTS vector"))
+            connection.execute(
+                sql.SQL(
+                    """CREATE TABLE IF NOT EXISTS knowledge_chunks (
+                    chunk_id TEXT PRIMARY KEY, reference TEXT NOT NULL, title TEXT NOT NULL,
+                    chunk_index INTEGER NOT NULL, content TEXT NOT NULL, content_hash TEXT NOT NULL,
+                    embedding vector({dimensions}) NOT NULL)"""
+                ).format(dimensions=sql.Literal(str(self.dimensions)))
+            )
             connection.commit()
 
     async def replace_all(self, chunks: Sequence[tuple[KnowledgeChunk, list[float]]]) -> None:
-        import psycopg
         with psycopg.connect(self.dsn) as connection:
-            connection.execute("DELETE FROM knowledge_chunks")
+            connection.execute(sql.SQL("DELETE FROM knowledge_chunks"))
             for chunk, vector in chunks:
-                connection.execute("""INSERT INTO knowledge_chunks
-                    (chunk_id, reference, title, chunk_index, content, content_hash, embedding)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s::vector)
-                    ON CONFLICT (chunk_id) DO UPDATE SET reference=EXCLUDED.reference,
-                    title=EXCLUDED.title, chunk_index=EXCLUDED.chunk_index, content=EXCLUDED.content,
-                    content_hash=EXCLUDED.content_hash, embedding=EXCLUDED.embedding""",
+                connection.execute(
+                    sql.SQL(
+                        """INSERT INTO knowledge_chunks
+                        (chunk_id, reference, title, chunk_index, content, content_hash, embedding)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s::vector)
+                        ON CONFLICT (chunk_id) DO UPDATE SET reference=EXCLUDED.reference,
+                        title=EXCLUDED.title, chunk_index=EXCLUDED.chunk_index, content=EXCLUDED.content,
+                        content_hash=EXCLUDED.content_hash, embedding=EXCLUDED.embedding"""
+                    ),
                     (chunk.chunk_id, chunk.reference, chunk.title, chunk.chunk_index, chunk.content,
-                     chunk.content_hash, str(vector).replace(" ", "")))
+                     chunk.content_hash, str(vector).replace(" ", "")),
+                )
             connection.commit()
 
     async def search(self, embedding: list[float], top_k: int) -> list[RetrievedChunk]:
-        import psycopg
         bounded_k = min(max(top_k, 1), DEFAULT_TOP_K)
+        vector = str(embedding).replace(" ", "")
         with psycopg.connect(self.dsn) as connection:
-            rows = connection.execute("""SELECT chunk_id, reference, title, chunk_index, content,
-                content_hash, 1 - (embedding <=> %s::vector) AS score
-                FROM knowledge_chunks ORDER BY embedding <=> %s::vector LIMIT %s""",
-                (str(embedding).replace(" ", ""), str(embedding).replace(" ", ""), bounded_k)).fetchall()
+            rows = connection.execute(
+                sql.SQL(
+                    """SELECT chunk_id, reference, title, chunk_index, content,
+                    content_hash, 1 - (embedding <=> %s::vector) AS score
+                    FROM knowledge_chunks ORDER BY embedding <=> %s::vector LIMIT %s"""
+                ),
+                (vector, vector, bounded_k),
+            ).fetchall()
         return [RetrievedChunk(KnowledgeChunk(*row[:6]), float(row[6])) for row in rows]
 
 
