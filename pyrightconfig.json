@@ -6,6 +6,8 @@
     "tests/ops-mcp"
   ],
   "exclude": [
+    "**/node_modules",
+    "**/.*",
     "**/__pycache__",
     "**/.venv",
     "**/venv",
