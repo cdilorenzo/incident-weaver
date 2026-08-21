@@ -1,0 +1,4 @@
+-e ./src/ai-runtime[dev]
+-e ./src/ops-mcp[dev]
+build
+pip-tools

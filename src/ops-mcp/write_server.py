@@ -1,11 +1,16 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import TypedDict
 
 from fastapi.responses import JSONResponse
-from mcp.server.mcpserver.server import MCPServer
+from mcp.server.fastmcp import FastMCP
 
-FastMCP = MCPServer
+class RestartResult(TypedDict):
+    action_id: str
+    service: str
+    instance: str
+    status: str
+    result: str
 
 VALID_SERVICE = "checkout-api"
 VALID_INSTANCES = {"instance-1", "instance-2", "instance-3"}
@@ -34,12 +39,12 @@ server = FastMCP(
 
 
 @server.custom_route("/health", methods=["GET"])
-async def health_route(request: Any) -> JSONResponse:
+async def health_route(request: object) -> JSONResponse:
     return JSONResponse({"status": "healthy", "service": "operations-mcp-write", "write_only": True})
 
 
 @server.tool(description="Restart a single known instance of the checkout-api service.")
-def restart_instance(action_id: str, service: str, instance: str) -> dict[str, Any]:
+def restart_instance(action_id: str, service: str, instance: str) -> RestartResult:
     if not action_id or not action_id.strip():
         raise ValueError("ActionId is required.")
 

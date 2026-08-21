@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic_ai import Agent, RunContext
@@ -12,6 +12,11 @@ from pydantic_ai.toolsets import AbstractToolset, ToolsetTool
 
 from retrieval import KnowledgeRetriever
 from text_safety import sanitize_untrusted_text
+
+
+JsonScalar: TypeAlias = str | int | float | bool | None
+JsonValue: TypeAlias = JsonScalar | list["JsonValue"] | dict[str, "JsonValue"]
+JsonObject: TypeAlias = dict[str, JsonValue]
 
 
 class ActionProposalDraft(BaseModel):
@@ -40,7 +45,7 @@ REQUIRED_READ_TOOLS = (
 @dataclass(frozen=True)
 class ToolCallRecord:
     name: str
-    result: Any
+    result: object
 
 
 @dataclass
@@ -137,32 +142,47 @@ class GroundedInvestigation:
         return result
 
 
-def _as_mapping(value: Any) -> dict[str, object]:
-    if not isinstance(value, dict):
-        return {}
-    mapping = cast(dict[object, object], value)
-    normalized: dict[str, object] = {}
-    for key, item in mapping.items():
-        if isinstance(key, str):
-            normalized[str(key)] = item
-    return normalized
+def _json_value(value: object) -> JsonValue | None:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, list):
+        converted: list[JsonValue] = []
+        for item in value:
+            normalized = _json_value(item)
+            if normalized is None and item is not None:
+                return None
+            converted.append(normalized)
+        return converted
+    if isinstance(value, dict):
+        converted_object: JsonObject = {}
+        for key, item in value.items():
+            if not isinstance(key, str):
+                return None
+            normalized = _json_value(item)
+            if normalized is None and item is not None:
+                return None
+            converted_object[key] = normalized
+        return converted_object
+    return None
+
+
+def _as_json_object(value: object) -> JsonObject:
+    normalized = _json_value(value)
+    return normalized if isinstance(normalized, dict) else {}
 
 
 def _as_scalar(value: Any, default: str = "") -> str:
     return sanitize_untrusted_text(value) if isinstance(value, (str, int, float, bool)) else default
 
 
-def _as_list(value: Any) -> list[Any]:
-    if not isinstance(value, list):
-        return []
-    items = cast(list[object], value)
-    return [item for item in items]
+def _as_list(value: JsonValue | None) -> list[JsonValue]:
+    return value if isinstance(value, list) else []
 
 
-def evidence_summary(tool_name: str, result: Any) -> str:
+def evidence_summary(tool_name: str, result: object) -> str:
     """Render only deliberately selected operational fields for one MCP tool."""
 
-    data = _as_mapping(result)
+    data = _as_json_object(result)
     if tool_name == "get_service_health":
         selected: dict[str, object] = {
             "service": _as_scalar(data.get("service")),

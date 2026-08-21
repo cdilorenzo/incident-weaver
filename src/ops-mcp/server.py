@@ -1,12 +1,71 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any
+from typing import NotRequired, TypedDict
 
 from fastapi.responses import JSONResponse
-from mcp.server.mcpserver.server import MCPServer
+from mcp.server.fastmcp import FastMCP
 
-FastMCP = MCPServer
+class InstanceHealth(TypedDict):
+    instance: str
+    status: str
+    healthy: bool
+    notes: NotRequired[str]
+
+
+class ServiceHealth(TypedDict):
+    service: str
+    instances: list[InstanceHealth]
+
+
+class Deployment(TypedDict):
+    service: str
+    version: str
+    deployed_at: str
+    status: str
+    environment: str
+    region: str
+
+
+class LogEntry(TypedDict):
+    timestamp: str
+    service: str
+    instance: str
+    severity: str
+    event_id: str
+    message: str
+
+
+class TimeRange(TypedDict):
+    start: str
+    end: str
+
+
+class LogResult(TypedDict):
+    service: str
+    time_range: TimeRange
+    entries: list[LogEntry]
+
+
+class KnownIncident(TypedDict):
+    incident_id: str
+    service: str
+    summary: str
+    started_at: str
+    affected_instances: list[str]
+    remediation: str
+
+
+class KnownIncidentResult(TypedDict):
+    service: str
+    incidents: list[KnownIncident]
+
+
+class ServiceData(TypedDict):
+    health: ServiceHealth
+    deployment: Deployment
+    logs: list[LogEntry]
+    known_incidents: KnownIncidentResult
 
 
 def parse_iso8601(value: str) -> datetime:
@@ -28,7 +87,7 @@ def validate_time_range(start: str, end: str) -> tuple[datetime, datetime]:
     return start_dt, end_dt
 
 
-OPERATIONAL_DATA: dict[str, dict[str, Any]] = {
+OPERATIONAL_DATA: dict[str, ServiceData] = {
     "checkout-api": {
         "health": {
             "service": "checkout-api",
@@ -109,12 +168,12 @@ server = FastMCP(
 
 
 @server.custom_route("/health", methods=["GET"])
-async def health_route(request: Any) -> JSONResponse:
+async def health_route(request: object) -> JSONResponse:
     return JSONResponse({"status": "healthy", "service": "operations-mcp", "read_only": True})
 
 
 @server.tool(description="Return deterministic instance-level health for the requested service.")
-def get_service_health(service: str) -> dict[str, Any]:
+def get_service_health(service: str) -> ServiceHealth:
     normalized = service.strip()
     if normalized not in OPERATIONAL_DATA:
         raise ValueError(f"Unknown service: {normalized}. Supported service: checkout-api.")
@@ -123,7 +182,7 @@ def get_service_health(service: str) -> dict[str, Any]:
 
 
 @server.tool(description="Return deterministic log entries for a service within the provided time range.")
-def get_logs(service: str, time_range: dict[str, str]) -> dict[str, Any]:
+def get_logs(service: str, time_range: TimeRange) -> LogResult:
     normalized = service.strip()
     if normalized not in OPERATIONAL_DATA:
         raise ValueError(f"Unknown service: {normalized}. Supported service: checkout-api.")
@@ -133,7 +192,7 @@ def get_logs(service: str, time_range: dict[str, str]) -> dict[str, Any]:
 
     start, end = validate_time_range(str(time_range["start"]), str(time_range["end"]))
 
-    entries: list[dict[str, Any]] = []
+    entries: list[LogEntry] = []
     for entry in OPERATIONAL_DATA[normalized]["logs"]:
         timestamp = parse_iso8601(entry["timestamp"])
         if start <= timestamp < end:
@@ -147,7 +206,7 @@ def get_logs(service: str, time_range: dict[str, str]) -> dict[str, Any]:
 
 
 @server.tool(description="Return deterministic deployment metadata for the requested service.")
-def get_deployment(service: str) -> dict[str, Any]:
+def get_deployment(service: str) -> Deployment:
     normalized = service.strip()
     if normalized not in OPERATIONAL_DATA:
         raise ValueError(f"Unknown service: {normalized}. Supported service: checkout-api.")
@@ -156,7 +215,7 @@ def get_deployment(service: str) -> dict[str, Any]:
 
 
 @server.tool(description="Return structured historical incidents for the requested service.")
-def get_known_incidents(service: str) -> dict[str, Any]:
+def get_known_incidents(service: str) -> KnownIncidentResult:
     normalized = service.strip()
     if normalized not in OPERATIONAL_DATA:
         raise ValueError(f"Unknown service: {normalized}. Supported service: checkout-api.")

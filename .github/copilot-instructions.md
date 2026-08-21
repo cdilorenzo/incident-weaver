@@ -59,3 +59,11 @@ Prefer the narrowest truthful static type. Do not erase known application/domain
 ## Change discipline
 
 Before coding, inspect the relevant issue and ADRs. After coding, run the relevant tests and format/lint checks. If a requested change would violate an ADR, surface the conflict rather than silently rewriting the architecture.
+
+## Agent-generated change integrity
+
+- Agent reports are not proof that a change is valid.
+- A change is complete only when deterministic repository checks prove its acceptance criteria pass.
+- Quality gates are proxies for engineering quality, not targets to game.
+- Do not silence a checker when the underlying contract can be represented truthfully.
+- Do not weaken tests, analyzers, typing, security checks, or architecture checks merely to obtain green output.

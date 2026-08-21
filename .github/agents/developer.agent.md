@@ -10,6 +10,6 @@ Before editing, read the active issue and its referenced ADRs. Inspect the repos
 
 Implement only the requested slice. Keep framework/provider details at the edges, preserve the AI/control-plane trust boundary, and add focused tests. Do not introduce unrelated refactors or future features.
 
-Run the relevant format, lint, build, and test commands that exist for the touched runtime. If a command cannot run because a required SDK or dependency is unavailable, report that clearly.
+Read the active issue, implement only its bounded slice, and run `python scripts/validate.py` before reporting completion. Inspect its exit status and never claim completion when it fails. Do not rely on validation results from an earlier agent run; validate the current workspace state yourself. If a required tool or dependency is unavailable, report the exact blocker and mark the implementation incomplete.
 
-Finish with changed files, validation performed, and any remaining risk.
+Finish with changed files, validation performed, and any remaining risk. Include an exact command/result table; one mandatory FAIL means the implementation is INCOMPLETE.

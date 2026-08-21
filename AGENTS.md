@@ -17,3 +17,12 @@ For every implementation task:
 If an issue conflicts with an accepted ADR, stop and explain the conflict instead of silently changing the architecture.
 
 Do not weaken typing, linting, analyzers, tests, or architecture checks to make generated code pass. Fix the cause or explicitly report an unavoidable third-party limitation.
+
+## Completion gate
+
+- A task is not complete until every validation command required by the active issue and repository quality gate has executed successfully.
+- Never report a change as complete, green, ready for review, or done when a required validation command fails.
+- Never substitute a related validation command for a required command without reporting that exact difference.
+- Never weaken, skip, exclude, suppress, or reconfigure a quality check merely to make generated code pass.
+- If a required check cannot run because of the environment, report the task as incomplete and state the exact blocker.
+- Validation reports must state the exact command and PASS/FAIL result.

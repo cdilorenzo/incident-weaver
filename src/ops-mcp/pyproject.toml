@@ -9,7 +9,7 @@ description = "IncidentWeaver read-only operations MCP service"
 requires-python = ">=3.13"
 dependencies = [
     "fastapi>=0.115,<1.0",
-    "mcp>=1.0,<2.0",
+    "mcp==1.29.0",
     "uvicorn[standard]>=0.34,<1.0",
 ]
 
