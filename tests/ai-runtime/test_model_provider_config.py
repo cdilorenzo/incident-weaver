@@ -1,5 +1,4 @@
 import pytest
-from pydantic import ValidationError
 
 from model_provider import ModelSettings, create_model
 

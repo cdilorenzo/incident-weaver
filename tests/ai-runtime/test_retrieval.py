@@ -1,10 +1,12 @@
 from pathlib import Path
 import asyncio
-import sys
-from types import SimpleNamespace
 
 import pytest
+from psycopg import sql
+from pydantic_ai import RunContext
+from pydantic_ai.usage import RunUsage
 
+import retrieval
 from app import knowledge_context, knowledge_evidence
 from embedding import DeterministicEmbeddingProvider
 from retrieval import (
@@ -162,14 +164,18 @@ def test_postgres_replacement_deletes_and_inserts_in_one_transaction(monkeypatch
         def __exit__(self, exception_type: object, *_: object) -> None:
             self.rollback_observed = exception_type is not None
 
-        def execute(self, statement: str, parameters: tuple[object, ...] | None = None) -> None:
-            self.statements.append((statement, parameters))
+        def execute(self, statement: object, parameters: tuple[object, ...] | None = None) -> None:
+            rendered = statement.as_string(None) if isinstance(statement, sql.Composable) else str(statement)
+            self.statements.append((rendered, parameters))
 
         def commit(self) -> None:
             self.commits += 1
 
     connection = RecordingConnection()
-    monkeypatch.setitem(sys.modules, "psycopg", SimpleNamespace(connect=lambda _: connection))
+    def connect(_: object) -> RecordingConnection:
+        return connection
+
+    monkeypatch.setattr(retrieval.psycopg, "connect", connect)
     chunk = KnowledgeChunk("id", "reference", "title", 1, "content", "hash")
 
     asyncio.run(PostgresKnowledgeStore("dsn").replace_all([(chunk, [1.0, 2.0])]))
@@ -196,8 +202,9 @@ def test_postgres_replacement_rolls_back_when_insertion_fails(monkeypatch: pytes
                 self.working_rows = list(self.committed_rows)
                 self.rollbacks += 1
 
-        def execute(self, statement: str, parameters: tuple[object, ...] | None = None) -> None:
-            if statement == "DELETE FROM knowledge_chunks":
+        def execute(self, statement: object, parameters: tuple[object, ...] | None = None) -> None:
+            rendered = statement.as_string(None) if isinstance(statement, sql.Composable) else str(statement)
+            if rendered == "DELETE FROM knowledge_chunks":
                 self.working_rows.clear()
             else:
                 raise RuntimeError("insert failed")
@@ -207,7 +214,10 @@ def test_postgres_replacement_rolls_back_when_insertion_fails(monkeypatch: pytes
             self.commits += 1
 
     connection = FailingConnection()
-    monkeypatch.setitem(sys.modules, "psycopg", SimpleNamespace(connect=lambda _: connection))
+    def connect(_: object) -> FailingConnection:
+        return connection
+
+    monkeypatch.setattr(retrieval.psycopg, "connect", connect)
     chunk = KnowledgeChunk("id", "reference", "title", 1, "content", "hash")
 
     with pytest.raises(RuntimeError, match="insert failed"):
@@ -277,4 +287,5 @@ def test_retrieved_context_reaches_agent_without_becoming_a_tool(monkeypatch: py
     asyncio.run(agent.run("question", knowledge_context([retrieved])))
 
     assert chunk.reference in agent.last_prompt
-    assert set(asyncio.run(agent.toolset.get_tools(None))) == set(REQUIRED_READ_TOOLS)
+    ctx = RunContext(deps=None, model=TestModel(), usage=RunUsage())
+    assert set(asyncio.run(agent.toolset.get_tools(ctx))) == set(REQUIRED_READ_TOOLS)

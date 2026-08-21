@@ -16,4 +16,6 @@ Do not write code. Produce a concise architecture review containing:
 4. smallest acceptable implementation shape,
 5. explicit non-goals.
 
+When proposing the smallest acceptable implementation shape, identify important architectural or security invariants that should have deterministic tests. Make those invariants testable before implementation; do not become responsible for executing implementation tests.
+
 Reject designs that give the AI runtime state-changing credentials or tools. Challenge abstractions that exist only for hypothetical future requirements.

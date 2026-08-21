@@ -100,8 +100,11 @@ dotnet test
 Run the Python tests from the repository root:
 
 ```bash
-python -m pytest
+python scripts/bootstrap-dev.py
+python scripts/validate.py
 ```
+
+The bootstrap command creates `.venv` with both Python projects, their development extras, and the pinned quality-gate dependencies from `requirements-dev.lock.txt`. Configure VS Code/Pylance to use the repository `.venv` interpreter.
 
 Validate the Compose configuration without starting services:
 

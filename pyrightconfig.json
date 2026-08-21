@@ -1,0 +1,27 @@
+{
+  "include": [
+    "src/ai-runtime",
+    "src/ops-mcp",
+    "tests/ai-runtime",
+    "tests/ops-mcp"
+  ],
+  "exclude": [
+    "**/__pycache__",
+    "**/.venv",
+    "**/venv",
+    "**/bin",
+    "**/obj",
+    "**/.pytest_cache"
+  ],
+  "typeCheckingMode": "strict",
+  "pythonVersion": "3.13",
+  "venvPath": ".",
+  "venv": ".venv",
+  "stubPath": "typings",
+  "extraPaths": [
+    "src/ai-runtime",
+    "src/ops-mcp",
+    "tests/ai-runtime",
+    "tests/ops-mcp"
+  ]
+}

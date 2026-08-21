@@ -1,14 +1,23 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 from pydantic_ai import Agent, RunContext
+from pydantic_ai.agent import AgentRunResult
+from pydantic_ai.models import Model
 from pydantic_ai.toolsets import AbstractToolset, ToolsetTool
 
+from retrieval import KnowledgeRetriever
 from text_safety import sanitize_untrusted_text
+
+
+type JsonScalar = str | int | float | bool | None
+type JsonValue = JsonScalar | list[JsonValue] | dict[str, JsonValue]
+type JsonObject = dict[str, JsonValue]
+JSON_OBJECT_ADAPTER: TypeAdapter[JsonObject] = TypeAdapter(JsonObject)
 
 
 class ActionProposalDraft(BaseModel):
@@ -37,12 +46,13 @@ REQUIRED_READ_TOOLS = (
 @dataclass(frozen=True)
 class ToolCallRecord:
     name: str
-    result: Any
+    result: object
 
 
 @dataclass
 class InvestigationTrace:
-    calls: list[ToolCallRecord] = field(default_factory=list)
+    def __init__(self) -> None:
+        self.calls: list[ToolCallRecord] = []
 
     @property
     def successful_tool_names(self) -> set[str]:
@@ -94,12 +104,17 @@ class GroundingToolset(AbstractToolset[None]):
 class GroundedInvestigation:
     """Owns one agent and one isolated trace for one investigation run."""
 
-    def __init__(self, model: object, read_mcp: AbstractToolset[None], retriever: object | None = None) -> None:
+    def __init__(
+        self,
+        model: Model | str | None,
+        read_mcp: AbstractToolset[None],
+        retriever: KnowledgeRetriever | None = None,
+    ) -> None:
         self.trace = InvestigationTrace()
         self.retriever = retriever
         self.last_prompt = ""
         self.toolset = GroundingToolset(read_mcp, self.trace)
-        self.agent = Agent(
+        self.agent: Agent[None, InvestigationAgentOutput] = Agent(
             model=model,
             name="investigation-agent",
             output_type=InvestigationAgentOutput,
@@ -116,7 +131,7 @@ class GroundedInvestigation:
     async def __aexit__(self, *args: Any) -> bool | None:
         return await self.agent.__aexit__(*args)
 
-    async def run(self, prompt: str, knowledge_context: str = "") -> Any:
+    async def run(self, prompt: str, knowledge_context: str = "") -> AgentRunResult[InvestigationAgentOutput]:
         if knowledge_context:
             prompt = f"{prompt}\n\n{knowledge_context}"
         self.last_prompt = prompt
@@ -128,64 +143,78 @@ class GroundedInvestigation:
         return result
 
 
-def _as_mapping(value: Any) -> dict[str, Any]:
-    return value if isinstance(value, dict) else {}
+def _as_json_object(value: object) -> JsonObject:
+    try:
+        return JSON_OBJECT_ADAPTER.validate_python(value)
+    except ValidationError:
+        return {}
 
 
-def evidence_summary(tool_name: str, result: Any) -> str:
+def _as_scalar(value: Any, default: str = "") -> str:
+    return sanitize_untrusted_text(value) if isinstance(value, (str, int, float, bool)) else default
+
+
+def _as_list(value: JsonValue | None) -> list[JsonValue]:
+    return value if isinstance(value, list) else []
+
+
+def evidence_summary(tool_name: str, result: object) -> str:
     """Render only deliberately selected operational fields for one MCP tool."""
 
-    data = _as_mapping(result)
+    data = _as_json_object(result)
     if tool_name == "get_service_health":
-        selected = {
-            "service": sanitize_untrusted_text(data.get("service", "")),
+        selected: dict[str, object] = {
+            "service": _as_scalar(data.get("service")),
             "instances": [
                 {
-                    "instance": sanitize_untrusted_text(instance.get("instance", "")),
-                    "status": sanitize_untrusted_text(instance.get("status", "")),
-                    "healthy": instance.get("healthy"),
+                    "instance": _as_scalar(instance_map.get("instance")),
+                    "status": _as_scalar(instance_map.get("status")),
+                    "healthy": instance_map.get("healthy"),
                 }
-                for instance in data.get("instances", [])
+                for instance in _as_list(data.get("instances"))
                 if isinstance(instance, dict)
+                for instance_map in [instance]
             ],
         }
     elif tool_name == "get_deployment":
         selected = {
-            "service": sanitize_untrusted_text(data.get("service", "")),
-            "version": sanitize_untrusted_text(data.get("version", "")),
-            "deployed_at": sanitize_untrusted_text(data.get("deployed_at", "")),
-            "status": sanitize_untrusted_text(data.get("status", "")),
+            "service": _as_scalar(data.get("service")),
+            "version": _as_scalar(data.get("version")),
+            "deployed_at": _as_scalar(data.get("deployed_at")),
+            "status": _as_scalar(data.get("status")),
         }
     elif tool_name == "get_logs":
         selected = {
-            "service": sanitize_untrusted_text(data.get("service", "")),
+            "service": _as_scalar(data.get("service")),
             "entries": [
                 {
-                    "event_id": sanitize_untrusted_text(entry.get("event_id", "")),
-                    "timestamp": sanitize_untrusted_text(entry.get("timestamp", "")),
-                    "instance": sanitize_untrusted_text(entry.get("instance", "")),
-                    "severity": sanitize_untrusted_text(entry.get("severity", "")),
-                    "message": sanitize_untrusted_text(entry.get("message", "")),
+                    "event_id": _as_scalar(entry_map.get("event_id")),
+                    "timestamp": _as_scalar(entry_map.get("timestamp")),
+                    "instance": _as_scalar(entry_map.get("instance")),
+                    "severity": _as_scalar(entry_map.get("severity")),
+                    "message": _as_scalar(entry_map.get("message")),
                 }
-                for entry in data.get("entries", [])
+                for entry in _as_list(data.get("entries"))
                 if isinstance(entry, dict)
+                for entry_map in [entry]
             ],
         }
     elif tool_name == "get_known_incidents":
         selected = {
-            "service": sanitize_untrusted_text(data.get("service", "")),
+            "service": _as_scalar(data.get("service")),
             "incidents": [
                 {
-                    "incident_id": sanitize_untrusted_text(incident.get("incident_id", "")),
-                    "service": sanitize_untrusted_text(incident.get("service", "")),
+                    "incident_id": _as_scalar(incident_map.get("incident_id")),
+                    "service": _as_scalar(incident_map.get("service")),
                     "affected_instances": [
-                        sanitize_untrusted_text(instance)
-                        for instance in incident.get("affected_instances", [])
+                        _as_scalar(instance)
+                        for instance in _as_list(incident_map.get("affected_instances"))
                     ],
-                    "summary": sanitize_untrusted_text(incident.get("summary", "")),
+                    "summary": _as_scalar(incident_map.get("summary")),
                 }
-                for incident in data.get("incidents", [])
+                for incident in _as_list(data.get("incidents"))
                 if isinstance(incident, dict)
+                for incident_map in [incident]
             ],
         }
     else:
@@ -208,7 +237,9 @@ Use all four available read-only tools before returning a successful investigati
 
 
 def create_investigation_agent(
-    model: object, read_mcp: AbstractToolset[None], retriever: object | None = None
+    model: Model | str | None,
+    read_mcp: AbstractToolset[None],
+    retriever: KnowledgeRetriever | None = None,
 ) -> GroundedInvestigation:
     """Construct the single project investigation agent with the read MCP surface."""
 

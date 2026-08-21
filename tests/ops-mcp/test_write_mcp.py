@@ -1,29 +1,29 @@
 import asyncio
 import importlib.util
 from pathlib import Path
+from typing import Any
 
 import pytest
 from mcp.server.fastmcp.exceptions import ToolError
+from pydantic import TypeAdapter
 
 ROOT = Path(__file__).parents[2]
 MODULE_PATH = ROOT / "src" / "ops-mcp" / "write_server.py"
 
 spec = importlib.util.spec_from_file_location("ops_mcp_write_server", MODULE_PATH)
+assert spec is not None
 module = importlib.util.module_from_spec(spec)
+assert spec.loader is not None
 spec.loader.exec_module(module)
-server = module.server
+server: Any = module.server
 
 EXPECTED_TOOLS = {"restart_instance"}
 FORBIDDEN_TOOLS = {"get_service_health", "get_logs", "get_deployment", "get_known_incidents", "restart_service", "deploy"}
 
 
-def _structured_result(tool_name: str, arguments: dict[str, object]) -> dict[str, object]:
-    result = asyncio.run(server.call_tool(tool_name, arguments))
-    assert isinstance(result, tuple)
-    assert len(result) == 2
-    structured = result[1]
-    assert isinstance(structured, dict)
-    return structured
+def _structured_result(tool_name: str, arguments: dict[str, object]) -> dict[str, Any]:
+    result = TypeAdapter(tuple[object, object]).validate_python(asyncio.run(server.call_tool(tool_name, arguments)))
+    return TypeAdapter(dict[str, Any]).validate_python(result[1])
 
 
 def test_write_mcp_exposes_only_restart_instance() -> None:
