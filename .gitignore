@@ -17,6 +17,9 @@ dist/
 build/
 *.egg-info/
 
+# Pyright generated reports (not source-controlled)
+pyright_report*.json
+
 # Environment and secrets
 .env
 .env.*
