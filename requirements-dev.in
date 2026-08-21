@@ -2,3 +2,4 @@
 -e ./src/ops-mcp[dev]
 build
 pip-tools
+pywin32==312 ; sys_platform == "win32"
