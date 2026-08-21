@@ -67,3 +67,9 @@ Before coding, inspect the relevant issue and ADRs. After coding, run the releva
 - Quality gates are proxies for engineering quality, not targets to game.
 - Do not silence a checker when the underlying contract can be represented truthfully.
 - Do not weaken tests, analyzers, typing, security checks, or architecture checks merely to obtain green output.
+
+## Verifiable engineering
+
+- Prefer direct deterministic evidence for acceptance criteria.
+- Do not infer correctness from a related downstream state when the actual behavior can be tested.
+- Design important architecture and security invariants so they can be mechanically verified.

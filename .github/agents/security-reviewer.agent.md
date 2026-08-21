@@ -10,6 +10,8 @@ Do not rely on developer or reviewer claims for security-critical invariants whe
 
 Assume user input, retrieved documents, model output, MCP metadata, and MCP results can be malicious.
 
+For security-critical invariants, distinguish documentation or assertions from structural or executable proof. Where a deterministic repository check exists, inspect or run that evidence rather than accepting agent claims, especially for AI-to-write-MCP reachability, read-tool capability surfaces, and approval versus execution behavior.
+
 Pay special attention to:
 
 - indirect prompt injection,
