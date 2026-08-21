@@ -1,33 +1,46 @@
 # IncidentWeaver
 
-> Evidence-driven AI incident investigation with guarded remediation.
+![CI](https://github.com/cdilorenzo/incident-weaver/actions/workflows/ci.yml/badge.svg)
 
-IncidentWeaver is an open-source reference architecture for building safe AI operations assistants over existing enterprise systems.
+> Production-oriented reference architecture for safe AI incident investigation and guarded remediation.
 
-The project demonstrates how a production-oriented agentic system can investigate an operational incident, collect evidence from trusted sources, propose a remediation, and cross a state-changing execution boundary only after deterministic policy checks and explicit human approval.
+IncidentWeaver is a compact, architecture-first reference implementation for investigating an operational incident with evidence, constrained tool use, deterministic policy, explicit approval, and auditable privileged execution. It is not presented as a production AIOps product or an autonomous remediation platform.
 
-## Design principle
+## Current implementation status
 
-**Architecture depth over architecture size.**
+This repository currently implements the architecture through the privileged-execution and audit slice described in the V1 issue backlog. The design remains intentionally small and bounded to one incident scenario: HTTP 500 failures in `checkout-api` after deployment `1.8.4`.
 
-The repository intentionally optimizes for a small number of deeply implemented architectural concerns rather than a broad feature set.
+The implemented flow is:
 
-## V1 scenario
+```text
+request
+  -> .NET Control Plane
+  -> Python AI Runtime
+  -> RAG / curated knowledge
+  -> exactly four read-only MCP capabilities
+  -> grounded InvestigationResult
+  -> structured ActionProposal
+  -> deterministic policy
+  -> explicit approval
+  -> privileged .NET executor
+  -> isolated Write MCP restart capability
+  -> audit
+```
 
-A developer reports:
+The repository demonstrates the trust boundary explicitly: the AI runtime may investigate and propose, but the .NET control plane owns deterministic authorization, approval state, and privileged execution.
 
-> Checkout API returns HTTP 500 since deployment 1.8.4. What happened?
+## Trust boundary
 
-The system should:
+The central rule is simple:
 
-1. retrieve relevant operational knowledge,
-2. inspect deployment, health, logs, and known incidents through read-only MCP tools,
-3. correlate the evidence,
-4. return a structured investigation result with citations,
-5. propose a remediation when justified,
-6. require deterministic policy evaluation and explicit approval for state-changing actions,
-7. execute an approved action outside the AI runtime,
-8. write an auditable record of the decision and execution.
+**Python may investigate and propose. .NET owns deterministic authorization/state and privileged execution.**
+
+- the AI runtime has read-only operational capability
+- the Write MCP is on a separate network
+- the AI runtime is not attached to that write network
+- approval does not itself execute
+- privileged execution occurs only through the Control Plane
+- model output is treated as untrusted input
 
 ## Architecture at a glance
 
@@ -38,29 +51,99 @@ Client
 ASP.NET Core Control Plane
   |  investigation request
   v
-Python AI Runtime ----> Read-only MCP capability ----> Mock Operations System
-  |
-  | InvestigationResult + ActionProposal
+Python AI Runtime
+  |  read-only MCP and retrieval
   v
-ASP.NET Policy / Approval / Audit
+Grounded InvestigationResult + ActionProposal
   |
-  | approved action only
   v
-Privileged Action Executor ----> Write MCP capability ----> Mock Operations System
+Deterministic policy + approval state
+  |
+  v
+Privileged .NET executor
+  |
+  v
+Isolated Write MCP restart capability
+  |
+  v
+Audit record
 ```
 
-The AI runtime never owns state-changing credentials or capabilities.
+The AI runtime never owns state-changing credentials or write capability.
 
-## Planned V1 stack
+## Current stack and status
 
-- .NET 10 / ASP.NET Core for the control plane
-- Python 3.13+ / FastAPI for the AI runtime
-- Pydantic AI behind project-owned abstractions
-- Model Context Protocol for operations tools
-- PostgreSQL + pgvector for retrieval in a later slice
-- OpenTelemetry for traces and structured telemetry
-- Docker Compose for local development
-- GitHub Actions for CI
+### Implemented
+
+- .NET 10 / ASP.NET Core Control Plane
+- Python 3.13 / FastAPI AI Runtime
+- Pydantic AI behind project-owned interfaces
+- MCP read/write separation for the simulation
+- PostgreSQL + pgvector-backed retrieval and knowledge access
+- structured `ActionProposal` / deterministic policy / approval flow
+- isolated privileged Write MCP execution
+- audit records for execution lifecycle
+- Docker Compose local topology
+- strict Pyright checks and repository validation harness
+- custom Copilot agents and path-specific repository instructions
+
+### Still planned for V1
+
+- prompt-injection and security evaluation suite
+- OpenTelemetry observability
+- CI enforcement
+- final architecture/reference documentation polish
+
+## Local development and Compose
+
+Start the local stack with Docker Compose:
+
+```bash
+docker compose up --build
+```
+
+The only host-accessible local entry point in the current Compose topology is the Control Plane:
+
+- `http://localhost:8080` for the public control-plane endpoint
+
+The AI runtime and MCP services are intentionally internal-only in the Docker network topology and are not exposed directly on localhost. The public local entry point is the Control Plane, which calls the AI runtime over the internal Compose network.
+
+Use the canonical Python bootstrap and validation flow from the repository root:
+
+```bash
+python scripts/bootstrap-dev.py
+python scripts/validate.py
+```
+
+The bootstrap script creates `.venv` with the project dependencies pinned in `requirements-dev.lock.txt`. Configure VS Code/Pylance to use the repository `.venv` interpreter.
+
+Validate the Compose configuration without starting services:
+
+```bash
+docker compose config
+```
+
+## Agent engineering harness
+
+This repository also demonstrates the engineering harness used to modify and review the software itself. It includes repository-level guidance, path-specific Python and .NET instructions, least-privilege custom agents, and clear separation of duties between developer, reviewer, and security reviewer roles. The project explicitly emphasizes direct evidence over proxy evidence, a deterministic completion gate, strict Python typing, and a single repository quality-gate entry point.
+
+See:
+
+- [AGENTS.md](AGENTS.md)
+- [.github/copilot-instructions.md](.github/copilot-instructions.md)
+
+## What is deliberately not included
+
+IncidentWeaver intentionally stays within a narrow V1 scope. It does not include:
+
+- autonomous remediation
+- multi-agent orchestration
+- Kubernetes or platform complexity
+- production OAuth or SSO
+- general-purpose vendor integrations
+- a broad AIOps platform
+
+This is a focused reference architecture and validation harness rather than a general product surface.
 
 ## Repository layout
 
@@ -70,46 +153,11 @@ docs/                 V1 scope, architecture, ADRs, issue specifications
 contracts/             Cross-service contract guidance
 src/control-plane/     ASP.NET Core control plane
 src/ai-runtime/        Python AI runtime
-src/ops-mcp/           MCP adapter over the simulated operations system
+src/ops-mcp/           MCP adapters for read and write surfaces
 tests/                 Tests grouped by runtime
 evaluations/           AI evaluation datasets and runners
-knowledge/             Small curated operational knowledge base
-```
-
-## Status
-
-The repository is currently in the architecture and bootstrap phase. Product implementation starts with the small slices documented under `docs/issues/`.
-
-## Local development
-
-Start both runtime services with Docker Compose:
-
-```bash
-docker compose up --build
-```
-
-The control plane health endpoint is available at `http://localhost:8080/health`, and the AI runtime health endpoint is available at `http://localhost:8000/health`.
-
-Run the .NET build and tests from the repository root:
-
-```bash
-dotnet build
-dotnet test
-```
-
-Run the Python tests from the repository root:
-
-```bash
-python scripts/bootstrap-dev.py
-python scripts/validate.py
-```
-
-The bootstrap command creates `.venv` with both Python projects, their development extras, and the pinned quality-gate dependencies from `requirements-dev.lock.txt`. Configure VS Code/Pylance to use the repository `.venv` interpreter.
-
-Validate the Compose configuration without starting services:
-
-```bash
-docker compose config
+knowledge/             Curated operational knowledge base
+scripts/               Bootstrap and repository validation
 ```
 
 ## License

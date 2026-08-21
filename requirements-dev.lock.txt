@@ -166,8 +166,10 @@ python-dotenv==1.2.3
     #   uvicorn
 python-multipart==0.0.32
     # via mcp
-pywin32==312
-    # via mcp
+pywin32==312 ; sys_platform == "win32"
+    # via
+    #   -r requirements-dev.in
+    #   mcp
 pyyaml==6.0.3
     # via uvicorn
 referencing==0.37.0
