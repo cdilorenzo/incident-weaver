@@ -7,8 +7,14 @@ builder.Services.AddHttpClient<IAiRuntimeClient, AiRuntimeClient>(client =>
     var runtimeUrl = builder.Configuration["AiRuntime:Url"] ?? "http://localhost:8000";
     client.BaseAddress = new Uri(runtimeUrl);
 });
+builder.Services.AddHttpClient<IPrivilegedActionExecutor, McpPrivilegedActionExecutor>(client =>
+{
+    var writeUrl = builder.Configuration["WriteMcp:Url"] ?? "http://localhost:8002";
+    client.BaseAddress = new Uri(writeUrl);
+});
 builder.Services.AddSingleton<IActionPolicy, DeterministicActionPolicy>();
 builder.Services.AddSingleton<IActionStateStore, InMemoryActionStateStore>();
+builder.Services.AddSingleton<IAuditStore, InMemoryAuditStore>();
 builder.Services.AddSingleton<ControlPlaneEvidenceBinder>();
 builder.Services.AddSingleton<ActionLifecycle>();
 
@@ -63,11 +69,52 @@ app.MapGet("/actions/{actionId}", (string actionId, IActionStateStore store) =>
         : Results.NotFound();
 });
 
+app.MapGet("/actions/{actionId}/audit", (string actionId, IAuditStore auditStore) =>
+{
+    var records = auditStore.GetForAction(actionId);
+    return records.Count == 0 ? Results.NotFound() : Results.Ok(records);
+});
+
 app.MapPost("/actions/{actionId}/approve", (string actionId, IActionStateStore store) =>
     TransitionAction(actionId, ActionApprovalState.Approved, store));
 
 app.MapPost("/actions/{actionId}/reject", (string actionId, IActionStateStore store) =>
     TransitionAction(actionId, ActionApprovalState.Rejected, store));
+
+app.MapPost("/actions/{actionId}/execute", async (
+    string actionId,
+    IActionStateStore store,
+    IPrivilegedActionExecutor executor,
+    IAuditStore auditStore,
+    CancellationToken cancellationToken) =>
+{
+    if (!store.TryGet(actionId, out var current) || current is null)
+    {
+        return Results.NotFound();
+    }
+
+    try
+    {
+        var execution = new ActionExecutionService(store, executor, auditStore);
+        var result = await execution.ExecuteAsync(actionId, cancellationToken);
+        return Results.Ok(new ActionExecutionResponse(
+            actionId,
+            result.Status,
+            result.OperationType,
+            result.Service,
+            result.Target,
+            result.CompletedAt,
+            result.ReasonCode));
+    }
+    catch (InvalidOperationException exception)
+    {
+        return Results.Conflict(new { error = exception.Message });
+    }
+    catch (Exception)
+    {
+        return Results.Problem("Privileged execution failed.", statusCode: StatusCodes.Status500InternalServerError);
+    }
+});
 
 app.Run();
 
@@ -98,6 +145,16 @@ static ActionStateResponse ToResponse(ActionState state) => new(
     state.Proposal,
     state.Policy.Decision,
     state.Policy.ReasonCode,
-    state.ApprovalState);
+    state.ApprovalState,
+    state.ExecutionState);
+
+public sealed record ActionExecutionResponse(
+    string ActionId,
+    ActionExecutionStatus Status,
+    string OperationType,
+    string Service,
+    string Target,
+    DateTimeOffset CompletedAt,
+    string ReasonCode);
 
 public partial class Program;

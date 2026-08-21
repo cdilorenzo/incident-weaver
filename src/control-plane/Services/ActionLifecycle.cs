@@ -47,7 +47,9 @@ public sealed class ActionLifecycle(
             policyResult,
             policyResult.IsAllowed
                 ? ActionApprovalState.PendingApproval
-                : ActionApprovalState.PolicyDenied);
+                : ActionApprovalState.PolicyDenied,
+            ActionExecutionState.NotStarted,
+            DateTimeOffset.UtcNow);
         store.Add(state);
         return publicResult with { ActionProposal = proposal };
     }

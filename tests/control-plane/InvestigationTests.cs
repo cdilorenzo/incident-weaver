@@ -96,6 +96,7 @@ public sealed class InvestigationTests : IClassFixture<WebApplicationFactory<Pro
         Assert.Equal(HttpStatusCode.OK, inspection.StatusCode);
         var inspectionState = await inspection.Content.ReadFromJsonAsync<ActionStateResponse>();
         Assert.Equal(ActionApprovalState.PendingApproval, inspectionState!.ApprovalState);
+        Assert.Equal(ActionExecutionState.NotStarted, inspectionState.ExecutionState);
 
         using var approval = await client.PostAsync($"/actions/{actionId}/approve", null);
         Assert.Equal(HttpStatusCode.OK, approval.StatusCode);
