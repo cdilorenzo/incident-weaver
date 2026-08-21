@@ -32,3 +32,14 @@ and the resulting environment passes the repository quality gate.
 Done means all mandatory direct acceptance validations pass, the repository quality gate passes, and no mandatory criterion is unverified. It does not mean an agent believes the implementation is correct or that one large command happened to pass.
 
 The baseline command is `python scripts/validate.py`. Slice-specific direct validations remain separate when they would make the baseline slow, destructive, or difficult to maintain.
+
+## Responsibility model
+
+| Evidence | Developer | Reviewer | Security Reviewer |
+| --- | --- | --- | --- |
+| Repository quality gate | run | independently rerun | not duplicated |
+| Slice functional criteria | run | independently verify | only if security-relevant |
+| Security architecture | implement/test | inspect general correctness | independently inspect |
+| Security executable tests | run | execute as part of gate | inspect proof/test design |
+
+Independent verification means the assigned owner does not rely on the implementer's report; it does not require every role to duplicate every check. The Security Reviewer remains read/search-only and evaluates security scope directly. A role limitation is not an implementation defect unless a mandatory security invariant lacks proof.
