@@ -8,6 +8,8 @@ COPY src/ops-mcp/pyproject.toml ./pyproject.toml
 RUN pip install --no-cache-dir --upgrade pip && pip install --no-cache-dir .
 
 COPY src/ops-mcp/server.py ./server.py
+COPY src/ops-mcp/write_server.py ./write_server.py
+COPY src/ops-mcp/connectors ./connectors
 
 RUN chown -R app:app /app
 USER app

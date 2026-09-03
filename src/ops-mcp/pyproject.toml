@@ -19,7 +19,7 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-only-include = ["server.py"]
+only-include = ["server.py", "write_server.py", "connectors"]
 
 [tool.pytest.ini_options]
 pythonpath = [".", "../../tests/ops-mcp"]

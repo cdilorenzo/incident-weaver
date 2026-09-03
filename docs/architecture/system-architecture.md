@@ -44,6 +44,8 @@ Responsibilities:
 
 The same implementation may be deployed/configured as separate read and write capability endpoints, but the AI runtime receives access only to the read surface.
 
+Internally, the MCP tool layer delegates to a configured `ReadOperationsConnector` / `WriteOperationsConnector` (`src/ops-mcp/connectors/`, ADR 0006). This keeps vendor-specific integration knowledge out of the MCP tool layer and out of the core, while the stable MCP tool contracts and the read/write separation remain unchanged.
+
 ### PostgreSQL / pgvector
 
 Introduced only when needed by the retrieval slice. Local development may use one PostgreSQL instance, but logical data ownership and credentials remain separated by component.

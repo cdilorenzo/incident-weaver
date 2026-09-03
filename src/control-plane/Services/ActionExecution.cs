@@ -151,25 +151,32 @@ public sealed class McpPrivilegedActionExecutor(HttpClient httpClient) : IPrivil
         }
 
         var body = await call.Content.ReadFromJsonAsync<JsonElement>(JsonOptions, cancellationToken);
-        var payload = body.TryGetProperty("result", out var resultNode)
-            ? resultNode
-            : body;
+        if (!body.TryGetProperty("result", out var mcpResult) || mcpResult.ValueKind != JsonValueKind.Object)
+        {
+            throw new InvalidOperationException("Write MCP returned an invalid result.");
+        }
 
-        var actionId = payload.TryGetProperty("action_id", out var actionIdNode)
-            ? actionIdNode.GetString() ?? proposal.ActionId
-            : proposal.ActionId;
-        var service = payload.TryGetProperty("service", out var serviceNode)
-            ? serviceNode.GetString() ?? proposal.Service
-            : proposal.Service;
-        var target = payload.TryGetProperty("instance", out var instanceNode)
-            ? instanceNode.GetString() ?? proposal.Target
-            : proposal.Target;
-        var statusText = payload.TryGetProperty("status", out var statusNode)
-            ? statusNode.GetString() ?? "restarted"
-            : "restarted";
-        var reason = payload.TryGetProperty("result", out var resultCodeNode)
-            ? resultCodeNode.GetString() ?? "completed"
-            : "completed";
+        if (mcpResult.TryGetProperty("isError", out var errorNode) && errorNode.ValueKind == JsonValueKind.True)
+        {
+            throw new InvalidOperationException("Write MCP execution failed.");
+        }
+
+        if (!mcpResult.TryGetProperty("structuredContent", out var payload) || payload.ValueKind != JsonValueKind.Object)
+        {
+            throw new InvalidOperationException("Write MCP returned an invalid result.");
+        }
+
+        var actionId = RequiredString(payload, "action_id");
+        var service = RequiredString(payload, "service");
+        var target = RequiredString(payload, "instance");
+        var statusText = RequiredString(payload, "status");
+
+        if (!string.Equals(actionId, proposal.ActionId, StringComparison.Ordinal) ||
+            !string.Equals(service, proposal.Service, StringComparison.Ordinal) ||
+            !string.Equals(target, proposal.Target, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("Write MCP returned a result for a different action target.");
+        }
 
         var status = string.Equals(statusText, "restarted", StringComparison.OrdinalIgnoreCase)
             ? ActionExecutionStatus.Executed
@@ -182,7 +189,23 @@ public sealed class McpPrivilegedActionExecutor(HttpClient httpClient) : IPrivil
             service,
             target,
             DateTimeOffset.UtcNow,
-            reason);
+            status == ActionExecutionStatus.Executed ? "completed" : "mcp_execution_failed");
+    }
+
+    private static string RequiredString(JsonElement payload, string propertyName)
+    {
+        if (!payload.TryGetProperty(propertyName, out var value) || value.ValueKind != JsonValueKind.String)
+        {
+            throw new InvalidOperationException("Write MCP returned an invalid result.");
+        }
+
+        var text = value.GetString();
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            throw new InvalidOperationException("Write MCP returned an invalid result.");
+        }
+
+        return text;
     }
 }
 
