@@ -108,12 +108,22 @@ fabricated or empty-but-successful data.
   namespace/deployment name, Datadog service tag, etc.). The core never
   interprets or rewrites it.
 - **`instance`**: an opaque string naming one addressable unit of that
-  service (e.g. `instance-3`, or a Kubernetes pod name). The write
-  capability requires a non-empty, non-wildcard instance; a connector must
-  reject wildcarding before ever reaching a vendor API, so "restart
-  everything" can never be expressed at this layer.
+  service (e.g. `instance-3`, or a Kubernetes pod name qualified with its
+  immutable pod UID as `podName:uid`, per the Kubernetes mapping below).
+  The write capability requires a non-empty, non-wildcard instance; a
+  connector must reject wildcarding before ever reaching a vendor API, so
+  "restart everything" can never be expressed at this layer.
 
-diagnosis must never depend on its presence, and it must never carry
+  **Known limitation:** the existing control-plane `DeterministicActionPolicy`
+  (issue 007, unchanged by this ADR) only allows `restart_instance` targets
+  matching `^instance-[A-Za-z0-9]+$`. That regex is coupled to the mock
+  connector's naming convention, not to this ADR's opaque-identifier design.
+  A real connector whose instance identifiers do not match that pattern --
+  including the illustrative Kubernetes `podName:uid` format -- cannot be
+  approved end-to-end today. Making policy target validation vendor-neutral
+  is out of scope for this issue and is tracked as required follow-up
+  before any non-mock connector is wired into a running deployment.
+
 ### Vendor-specific metadata
 
 Vendor-specific metadata is deliberately not part of the MCP-facing
