@@ -76,16 +76,20 @@ subclasses of `ConnectorError`:
 | `UnknownServiceError` | The `service` identifier is not known to this connector. |
 | `UnknownInstanceError` | The `instance` identifier is not known to this connector. |
 | `InvalidTimeRangeError` | The requested time range is malformed or `start >= end`. |
+| `InvalidRequestError` | The requested operation cannot be safely performed as specified. |
 | `UnsupportedCapabilityError` | This connector does not implement the requested capability at all. |
 | `TransientProviderError` | The underlying provider failed in a way that may succeed on retry (timeout, connectivity, rate limit). |
 
-The MCP tool layer does not catch these; FastMCP already converts any
-raised exception into a `ToolError` carrying the original message, so
-callers see a clear, typed failure without the tool layer needing
-vendor-specific `except` branches. Distinguishing `UnsupportedCapabilityError`
-(permanent, capability not offered) from `TransientProviderError`
-(retryable) lets future policy/retry logic (outside this issue's scope)
-make that distinction later without redesigning the contract.
+The MCP tool layer catches these at its connector boundary and maps each to
+a fixed public message before FastMCP converts it into a `ToolError`.
+Unexpected exceptions use the fixed message "Operational provider
+unavailable." and retain the original exception only as a local cause.
+This prevents provider diagnostics, secrets, and attacker-controlled text
+from becoming model-visible error content. Distinguishing
+`UnsupportedCapabilityError` (permanent, capability not offered) from
+`TransientProviderError` (retryable) still lets future policy/retry logic
+(outside this issue's scope) make that distinction without redesigning the
+contract.
 
 ### Must every connector implement every read capability?
 
@@ -109,23 +113,26 @@ fabricated or empty-but-successful data.
   reject wildcarding before ever reaching a vendor API, so "restart
   everything" can never be expressed at this layer.
 
+diagnosis must never depend on its presence, and it must never carry
 ### Vendor-specific metadata
 
-Response models carry an optional `vendor_metadata: dict[str, str]` field
-for pass-through, non-authoritative vendor context (e.g. Kubernetes pod
-phase, namespace). It is informational only: policy, approval, and
-diagnosis must never depend on its presence, and it must never carry
-credentials or secrets.
+Vendor-specific metadata is deliberately not part of the MCP-facing
+connector response contracts. A connector must normalize only the selected
+project-owned fields before the MCP boundary. This prevents arbitrary
+provider strings, credentials, and prompt-injection content from becoming
+model-visible tool content. Provider diagnostics belong in controlled
+server-side telemetry, not MCP results or errors.
 
 ### Credential ownership
 
 Each connector implementation owns constructing and using its own
 credentials, sourced from its own configuration (env vars, mounted
 secrets, cloud identity, kubeconfig, etc.). Credentials never appear in a
-request/response model, never appear in a `ConnectorError` message, and
-never cross into the AI runtime or control plane. This preserves the
-existing "provider credentials do not enter model-visible content"
-invariant.
+request/response model and never cross into the AI runtime or control
+plane. The MCP adapter maps every connector error to a fixed public message
+and chains the original error only as a local cause; it does not expose
+provider error text. This preserves the existing "provider credentials do
+not enter model-visible content" invariant.
 
 ### Configuration ownership
 
@@ -194,13 +201,14 @@ mock). Existing tests in `tests/ops-mcp/test_ops_mcp.py` and
 implementation without depending on a real cluster or the Kubernetes SDK:
 
 - `service` maps to a Kubernetes namespace/deployment name.
-- `instance` maps to a pod name.
+- `instance` maps to a pod name plus immutable pod UID (`podName:uid`).
 - `get_service_health` maps pod phase (`Running`, `CrashLoopBackOff`, …) to
   `InstanceHealth`.
 - `get_deployment` maps a deployment's image tag to `version`.
-- `restart_instance` maps to deleting exactly one named pod (the
-  Deployment/ReplicaSet controller recreates it), never a broader
-  rollout/scale operation.
+- `restart_instance` maps to deleting exactly one UID-qualified pod with a
+  UID precondition (the Deployment/ReplicaSet controller recreates it),
+  never a broader rollout/scale operation. A replacement pod that reused a
+  name after approval is refused rather than restarted.
 - `get_logs` / `get_known_incidents` raise `UnsupportedCapabilityError`,
   since this illustrative client has no log backend or ITSM integration —
   a production implementation would delegate those to a logs/ITSM

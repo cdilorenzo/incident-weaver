@@ -8,7 +8,7 @@ Demonstrates how the existing IncidentWeaver demo data maps onto the
 
 from typing import TypedDict
 
-from .contracts import UnknownInstanceError, UnknownServiceError
+from .contracts import InvalidRequestError, UnknownInstanceError, UnknownServiceError
 from .models import Deployment, KnownIncidentResult, LogEntry, LogResult, RestartResult, ServiceHealth, TimeRange
 from .time_utils import parse_iso8601, validate_time_range
 
@@ -140,13 +140,13 @@ class MockWriteConnector:
 
     def restart_instance(self, action_id: str, service: str, instance: str) -> RestartResult:
         if not action_id or not action_id.strip():
-            raise ValueError("ActionId is required.")
+            raise InvalidRequestError("ActionId is required.")
 
         normalized_service = _require_known_service(service)
 
         normalized_instance = instance.strip()
         if not normalized_instance or normalized_instance == "*":
-            raise ValueError("Instance target is required and cannot be wildcarded.")
+            raise InvalidRequestError("Instance target is required and cannot be wildcarded.")
         if normalized_instance not in VALID_INSTANCES:
             raise UnknownInstanceError(
                 f"Unknown instance: {normalized_instance}. Supported instances: instance-1, instance-2, instance-3."

@@ -13,7 +13,6 @@ class InstanceHealth(TypedDict):
     status: str
     healthy: bool
     notes: NotRequired[str]
-    vendor_metadata: NotRequired[dict[str, str]]
 
 
 class ServiceHealth(TypedDict):
@@ -28,7 +27,6 @@ class Deployment(TypedDict):
     status: str
     environment: str
     region: str
-    vendor_metadata: NotRequired[dict[str, str]]
 
 
 class LogEntry(TypedDict):

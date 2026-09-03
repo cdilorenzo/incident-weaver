@@ -34,7 +34,7 @@ def test_write_mcp_exposes_only_restart_instance() -> None:
 
 
 def test_invalid_service_is_rejected() -> None:
-    with pytest.raises(ToolError, match="checkout-api"):
+    with pytest.raises(ToolError, match="Unknown service"):
         asyncio.run(server.call_tool("restart_instance", {"action_id": "action-001", "service": "payments-api", "instance": "instance-3"}))
 
 

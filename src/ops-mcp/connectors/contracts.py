@@ -43,6 +43,10 @@ class InvalidTimeRangeError(ConnectorError):
     """The requested time range is malformed or logically invalid."""
 
 
+class InvalidRequestError(ConnectorError):
+    """The requested operation cannot be safely performed as specified."""
+
+
 class UnsupportedCapabilityError(ConnectorError):
     """This connector does not implement the requested capability.
 

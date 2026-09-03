@@ -13,15 +13,26 @@ deterministically in tests. A production implementation would adapt
 only this module would change — never the contracts or the MCP tool layer.
 """
 
-from typing import Protocol
+from collections.abc import Callable
+from typing import Protocol, TypeVar
 
-from .contracts import UnknownInstanceError, UnknownServiceError, UnsupportedCapabilityError
+from .contracts import (
+    ConnectorError,
+    InvalidRequestError,
+    TransientProviderError,
+    UnknownInstanceError,
+    UnknownServiceError,
+    UnsupportedCapabilityError,
+)
 from .models import Deployment, KnownIncidentResult, LogResult, RestartResult, ServiceHealth, TimeRange
+
+ResultT = TypeVar("ResultT")
 
 
 class PodStatus(Protocol):
     name: str
-    phase: str  # e.g. "Running", "CrashLoopBackOff", "Pending"
+    uid: str
+    phase: str
 
 
 class KubernetesClient(Protocol):
@@ -31,7 +42,24 @@ class KubernetesClient(Protocol):
 
     def get_deployment_image_tag(self, namespace: str, deployment_name: str) -> str: ...
 
-    def delete_pod(self, namespace: str, pod_name: str) -> None: ...
+    def delete_pod(self, namespace: str, pod_name: str, pod_uid: str) -> None: ...
+
+
+def _provider_call(
+    operation: Callable[[], ResultT], service: str, not_found_error: ConnectorError | None = None
+) -> ResultT:
+    try:
+        return operation()
+    except KeyError as exc:
+        raise not_found_error or UnknownServiceError(f"Unknown service: {service}.") from exc
+    except (ConnectionError, TimeoutError) as exc:
+        raise TransientProviderError("Kubernetes provider unavailable.") from exc
+    except Exception as exc:
+        raise TransientProviderError("Kubernetes provider unavailable.") from exc
+
+
+def _instance_identifier(pod: PodStatus) -> str:
+    return f"{pod.name}:{pod.uid}"
 
 
 class KubernetesReadConnector:
@@ -46,20 +74,25 @@ class KubernetesReadConnector:
     def __init__(self, client: KubernetesClient) -> None:
         self._client = client
 
-    def get_service_health(self, service: str) -> ServiceHealth:
+    def _pods_for_service(self, service: str) -> tuple[str, list[PodStatus]]:
         namespace = service.strip()
-        pods = self._client.list_pods(namespace)
+        if not namespace:
+            raise InvalidRequestError("Service is required.")
+        pods = _provider_call(lambda: self._client.list_pods(namespace), namespace)
         if not pods:
             raise UnknownServiceError(f"Unknown service: {namespace}. No pods found in namespace.")
+        return namespace, pods
+
+    def get_service_health(self, service: str) -> ServiceHealth:
+        namespace, pods = self._pods_for_service(service)
 
         return {
             "service": namespace,
             "instances": [
                 {
-                    "instance": pod.name,
+                    "instance": _instance_identifier(pod),
                     "status": pod.phase,
                     "healthy": pod.phase == "Running",
-                    "vendor_metadata": {"kubernetes_phase": pod.phase},
                 }
                 for pod in pods
             ],
@@ -72,8 +105,10 @@ class KubernetesReadConnector:
         )
 
     def get_deployment(self, service: str) -> Deployment:
-        namespace = service.strip()
-        image_tag = self._client.get_deployment_image_tag(namespace, namespace)
+        namespace, _ = self._pods_for_service(service)
+        image_tag = _provider_call(
+            lambda: self._client.get_deployment_image_tag(namespace, namespace), namespace
+        )
         return {
             "service": namespace,
             "version": image_tag,
@@ -81,7 +116,6 @@ class KubernetesReadConnector:
             "status": "deployed",
             "environment": "kubernetes",
             "region": namespace,
-            "vendor_metadata": {"namespace": namespace},
         }
 
     def get_known_incidents(self, service: str) -> KnownIncidentResult:
@@ -103,25 +137,38 @@ class KubernetesWriteConnector:
     def __init__(self, client: KubernetesClient) -> None:
         self._client = client
 
+    def _pod_for_instance(self, service: str, instance: str) -> tuple[str, PodStatus]:
+        namespace = service.strip()
+        if not namespace:
+            raise InvalidRequestError("Service is required.")
+
+        pod_name, separator, pod_uid = instance.strip().partition(":")
+        if not pod_name or separator != ":" or not pod_uid:
+            raise InvalidRequestError("Instance target must include a Kubernetes pod UID.")
+
+        pods = _provider_call(lambda: self._client.list_pods(namespace), namespace)
+        if not pods:
+            raise UnknownServiceError(f"Unknown service: {namespace}. No pods found in namespace.")
+        for pod in pods:
+            if pod.name == pod_name and pod.uid == pod_uid:
+                return namespace, pod
+        raise UnknownInstanceError(f"Unknown instance: {instance}. Not found in namespace {namespace}.")
+
     def restart_instance(self, action_id: str, service: str, instance: str) -> RestartResult:
         if not action_id or not action_id.strip():
-            raise ValueError("ActionId is required.")
+            raise InvalidRequestError("ActionId is required.")
 
-        namespace = service.strip()
-        pod_name = instance.strip()
-        if not pod_name or pod_name == "*":
-            raise ValueError("Instance target is required and cannot be wildcarded.")
-
-        known_pods = {pod.name for pod in self._client.list_pods(namespace)}
-        if pod_name not in known_pods:
-            raise UnknownInstanceError(f"Unknown instance: {pod_name}. Not found in namespace {namespace}.")
-
-        self._client.delete_pod(namespace, pod_name)
+        namespace, pod = self._pod_for_instance(service, instance)
+        _provider_call(
+            lambda: self._client.delete_pod(namespace, pod.name, pod.uid),
+            namespace,
+            UnknownInstanceError(f"Unknown instance: {instance}. Not found in namespace {namespace}."),
+        )
 
         return {
             "action_id": action_id.strip(),
             "service": namespace,
-            "instance": pod_name,
+            "instance": _instance_identifier(pod),
             "status": "restarted",
             "result": "completed",
         }

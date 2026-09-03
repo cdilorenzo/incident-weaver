@@ -1,6 +1,7 @@
 from fastapi.responses import JSONResponse
 from mcp.server.fastmcp import FastMCP
 
+from connectors.boundary import invoke_connector
 from connectors.config import select_write_connector
 from connectors.contracts import WriteOperationsConnector
 from connectors.models import RestartResult
@@ -24,7 +25,7 @@ async def health_route(request: object) -> JSONResponse:
 
 @server.tool(description="Restart a single known instance of the checkout-api service.")
 def restart_instance(action_id: str, service: str, instance: str) -> RestartResult:
-    return connector.restart_instance(action_id, service, instance)
+    return invoke_connector(lambda: connector.restart_instance(action_id, service, instance))
 
 
 app = server.streamable_http_app()

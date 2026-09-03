@@ -135,6 +135,43 @@ public sealed class PromptInjectionSecurityTests
         await Assert.ThrowsAsync<InvalidOperationException>(() => executor.ExecuteAsync(proposal, CancellationToken.None));
     }
 
+    [Theory]
+    [InlineData("""{"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"provider failure"}],"isError":true}}""")]
+    [InlineData("""{"jsonrpc":"2.0","id":2,"result":{"content":[],"isError":false}}""")]
+    [InlineData("""{"jsonrpc":"2.0","id":2,"result":{"structuredContent":{"action_id":"other-action","service":"checkout-api","instance":"instance-3","status":"restarted"},"isError":false}}""")]
+    public async Task Write_mcp_error_malformed_result_or_mismatched_target_is_refused(string callResponse)
+    {
+        var handler = new SequencedJsonHandler(
+            """{"jsonrpc":"2.0","id":1,"result":{"tools":[{"name":"restart_instance"}]}}""",
+            callResponse);
+        var executor = new McpPrivilegedActionExecutor(new HttpClient(handler) { BaseAddress = new Uri("http://write-mcp") });
+        var proposal = new ActionProposal(
+            "action-001", "investigation-001", "restart_instance", "checkout-api", "instance-3",
+            "Observed failure.", ["evidence-1", "evidence-2", "evidence-3", "evidence-4"]);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => executor.ExecuteAsync(proposal, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Write_mcp_matching_structured_success_is_accepted_with_a_fixed_reason_code()
+    {
+        var handler = new SequencedJsonHandler(
+            """{"jsonrpc":"2.0","id":1,"result":{"tools":[{"name":"restart_instance"}]}}""",
+            """{"jsonrpc":"2.0","id":2,"result":{"structuredContent":{"action_id":"action-001","service":"checkout-api","instance":"instance-3","status":"restarted","result":"api_key=provider-secret"},"isError":false}}""");
+        var executor = new McpPrivilegedActionExecutor(new HttpClient(handler) { BaseAddress = new Uri("http://write-mcp") });
+        var proposal = new ActionProposal(
+            "action-001", "investigation-001", "restart_instance", "checkout-api", "instance-3",
+            "Observed failure.", ["evidence-1", "evidence-2", "evidence-3", "evidence-4"]);
+
+        var result = await executor.ExecuteAsync(proposal, CancellationToken.None);
+
+        Assert.Equal(ActionExecutionStatus.Executed, result.Status);
+        Assert.Equal("completed", result.ReasonCode);
+        Assert.Equal(proposal.ActionId, result.ActionId);
+        Assert.Equal(proposal.Service, result.Service);
+        Assert.Equal(proposal.Target, result.Target);
+    }
+
     [Fact]
     public async Task Pending_approval_action_cannot_be_executed_regardless_of_proposal_content()
     {
